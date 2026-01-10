@@ -143,3 +143,26 @@ export const DEFAULT_SHIP_DESIGNS = [
 
 export const MAP_WIDTH = 1000;
 export const MAP_HEIGHT = 1000;
+
+export const SHIP_STATE = {
+    IDLE: 'IDLE',
+    MOVING: 'MOVING'
+};
+
+export const LOG_LEVELS = {
+    CRITICAL: 0,
+    ERROR: 1,
+    WARNING: 2,
+    INFO: 3,
+    DEBUG: 4,
+    TRACE: 5
+};
+
+export const LOG_CATEGORIES = {
+    SYSTEM: 'SYSTEM',
+    MOVEMENT: 'MOVEMENT',
+    COMBAT: 'COMBAT',
+    ECONOMY: 'ECONOMY',
+    AI: 'AI',
+    NETWORK: 'NETWORK'
+};

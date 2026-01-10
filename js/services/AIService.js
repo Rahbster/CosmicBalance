@@ -1,9 +1,10 @@
 import { SHIP_DATA } from './GalaxyService.js';
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 
 export class AIService {
     constructor(gameEngine) {
         this.engine = gameEngine;
-        console.log('[AIService] Initialized');
+        this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, 'AIService Initialized');
     }
 
     run(dt) {
@@ -17,7 +18,7 @@ export class AIService {
 
             // Run AI logic roughly every 3 seconds, staggered
             if (aiPlayer.actionTimer > 3000 + (Math.random() * 1000)) { 
-                console.log(`[AIService] Running logic for player ${aiPlayer.id}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.DEBUG, `Running logic for player ${aiPlayer.id}`);
                 aiPlayer.actionTimer = 0;
                 
                 this._manageProduction(aiPlayer);
@@ -98,11 +99,11 @@ export class AIService {
         const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
         
         // 1. Scouts
-        const idleScouts = myShips.filter(s => s.type === 'Scout' && s.moveState === 'IDLE' && !s.scoutMission);
+        const idleScouts = myShips.filter(s => s.type === 'Scout' && s.moveState === SHIP_STATE.IDLE && !s.scoutMission);
         idleScouts.forEach(scout => this._commandScout(aiPlayer, scout));
 
         // 2. Salvagers
-        const idleSalvagers = myShips.filter(s => s.type === 'Salvager' && s.moveState === 'IDLE' && !s.salvageMission);
+        const idleSalvagers = myShips.filter(s => s.type === 'Salvager' && s.moveState === SHIP_STATE.IDLE && !s.salvageMission);
         idleSalvagers.forEach(salvager => this._commandSalvager(aiPlayer, salvager));
 
         // 3. Fleet Formation
@@ -162,7 +163,7 @@ export class AIService {
         });
 
         if (closestDebris) {
-            console.log(`[AIService] Salvager ${salvager.id} targeting debris ${closestDebris.id}`);
+            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${closestDebris.id}`);
             this.engine.movementService.handleSalvageMissionRequest({
                 senderId: aiPlayer.id,
                 shipId: salvager.id,
@@ -180,7 +181,7 @@ export class AIService {
             
             if (unexplored.length > 0) {
                 const target = unexplored[Math.floor(Math.random() * unexplored.length)];
-                console.log(`[AIService] Scout ${scout.id} exploring ${target.id}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Scout ${scout.id} exploring ${target.id}`);
                 this.engine.movementService.handleScoutMissionRequest({ senderId: aiPlayer.id, shipId: scout.id, targetSystemId: target.id });
             } else {
                 // Filter out the system we just came from to prevent ping-ponging
@@ -190,22 +191,22 @@ export class AIService {
                 }
                 const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
                 if (randomNeighbor) {
-                     console.log(`[AIService] Scout ${scout.id} moving to neighbor ${randomNeighbor.id}`);
+                     this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Scout ${scout.id} moving to neighbor ${randomNeighbor.id}`);
                      this.engine.moveShip(scout.id, randomNeighbor.id);
                 }
             }
         } else {
-            console.warn(`[AIService] Scout ${scout.id} is idle in deep space at ${scout.x},${scout.y}`);
+            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Scout ${scout.id} is idle in deep space at ${scout.x},${scout.y}`);
             const closestSystem = this.engine.getClosestSystem(scout);
             if (closestSystem) {
-                console.log(`[AIService] Recovering lost scout ${scout.id} to nearest system ${closestSystem.id}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Recovering lost scout ${scout.id} to nearest system ${closestSystem.id}`);
                 this.engine.moveShip(scout.id, closestSystem.id);
             }
         }
     }
 
     _formFleets(aiPlayer, myShips) {
-        const unassignedCombatShips = myShips.filter(s => !s.fleetId && ['Fighter', 'Frigate', 'Destroyer', 'Cruiser', 'TroopTransport'].includes(s.type) && s.moveState === 'IDLE');
+        const unassignedCombatShips = myShips.filter(s => !s.fleetId && ['Fighter', 'Frigate', 'Destroyer', 'Cruiser', 'TroopTransport'].includes(s.type) && s.moveState === SHIP_STATE.IDLE);
         
         const shipsBySystem = {};
         unassignedCombatShips.forEach(ship => {
@@ -237,14 +238,14 @@ export class AIService {
             const fleetShips = this.engine.state.ships.filter(s => fleet.shipIds.includes(s.id) && s.fleetId === fleet.id);
             if (fleetShips.length === 0) return;
             
-            const isIdle = fleetShips.every(s => s.moveState === 'IDLE');
+            const isIdle = fleetShips.every(s => s.moveState === SHIP_STATE.IDLE);
             if (!isIdle) return;
 
             const currentSystemId = fleet.locationId;
             const currentSystem = this.engine.state.systems.find(s => s.id === currentSystemId);
             
             if (!currentSystem) {
-                console.warn(`[AIService] Fleet ${fleet.id} has invalid locationId: ${currentSystemId}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Fleet ${fleet.id} has invalid locationId: ${currentSystemId}`);
                 return;
             }
 
@@ -282,7 +283,7 @@ export class AIService {
             }
 
             if (target) {
-                console.log(`[AIService] Fleet ${fleet.id} (at ${currentSystem.id}) moving to ${target.id}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Fleet ${fleet.id} (at ${currentSystem.id}) moving to ${target.id}`);
                 this.engine.fleetService.handleMoveFleetRequest({
                     senderId: aiPlayer.id,
                     fleetId: fleet.id,

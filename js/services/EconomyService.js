@@ -1,4 +1,5 @@
 import { SHIP_DATA, PLANET_TYPES } from './GalaxyService.js';
+import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 
 export class EconomyService {
     constructor(engine) {
@@ -261,7 +262,7 @@ export class EconomyService {
 
         // Check if the ship type requires a tech unlock
         if (shipData.requiresTech && !player.researchedTechs.includes(shipData.requiresTech)) {
-            console.log(`Player ${senderId} cannot build ${shipType}, requires tech: ${shipData.requiresTech}`);
+            this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `Player ${senderId} cannot build ${shipType}, requires tech: ${shipData.requiresTech}`);
             this.engine.broadcast({
                 type: 'GAME_TOAST',
                 playerId: senderId,
@@ -276,7 +277,7 @@ export class EconomyService {
                                : (SHIP_DATA[location.type]?.buildCapabilities?.includes(shipType));
 
             if (!canBeBuilt) {
-                console.log(`${location.name || location.type} cannot build ${shipType}.`);
+                this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `${location.name || location.type} cannot build ${shipType}.`);
                 this.engine.broadcast({
                     type: 'GAME_TOAST',
                     playerId: senderId,

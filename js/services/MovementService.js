@@ -1,3 +1,5 @@
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
+
 export class MovementService {
     constructor(engine) {
         this.engine = engine;
@@ -46,9 +48,9 @@ export class MovementService {
                 // Increased buffer to 15 to ensure we are well inside the system radius
                 const arrivalRadius = system ? Math.min(effectiveRadius - 15, system.r + 50) : 10;
 
-                if (dist > arrivalRadius) { // If ship is in transit                        
+                if (dist > arrivalRadius + 1) { // If ship is in transit (Added +1 tolerance to prevent floating point stuck state)
                     if (ship.isDeparting) {
-                        console.log(`[MovementService] ${ship.type} ${ship.id} departing to ${ship.targetId}. Dist: ${dist.toFixed(1)} ArrivalRadius: ${arrivalRadius.toFixed(1)}`);
+                        this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `${ship.type} ${ship.id} departing to ${ship.targetId}. Dist: ${dist.toFixed(1)} ArrivalRadius: ${arrivalRadius.toFixed(1)}`);
                         delete ship.isDeparting;
                     }
                     const moveSpeed = warpSpeed * WARP_SPEED_FACTOR;
@@ -58,10 +60,12 @@ export class MovementService {
                     if (travelDistance > 0 && dist > 0) {
                         ship.x += (dx / dist) * travelDistance;
                         ship.y += (dy / dist) * travelDistance;
+                        // Trace log for movement details
+                        this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, `Ship ${ship.id} WARP. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)}) Dist: ${dist.toFixed(1)}`);
                     }
                 } else { // Ship has arrived at the system's edge
                     if (ship.isDeparting) delete ship.isDeparting; // Clear flag if we arrived instantly
-                    console.log(`[MovementService] ${ship.type} ${ship.id} arrived at ${ship.targetId}`);
+                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `${ship.type} ${ship.id} arrived at edge of ${ship.targetId}`);
                     const arrivedAtSystem = system;
                     ship.targetId = null; // Stop warping
 
@@ -69,7 +73,7 @@ export class MovementService {
                         ship.currentSystemId = arrivedAtSystem.id; // Explicitly set current system on arrival
                     }
 
-                    if (!ship.arrivalPoint) ship.moveState = 'IDLE'; // If no sublight destination, we are done.
+                    if (!ship.arrivalPoint) ship.moveState = SHIP_STATE.IDLE; // If no sublight destination, we are done.
 
                     if (this.engine.isHost && arrivedAtSystem) {
                         // Update fleet location if this ship belongs to a fleet
@@ -78,11 +82,11 @@ export class MovementService {
                             const fleet = player?.fleets.find(f => f.id === ship.fleetId);
                             if (fleet) {
                                 if (fleet.locationId !== arrivedAtSystem.id) {
-                                    console.log(`[MovementService] Fleet ${fleet.id} location updated from ${fleet.locationId} to ${arrivedAtSystem.id}`);
+                                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Fleet ${fleet.id} location updated from ${fleet.locationId} to ${arrivedAtSystem.id}`);
                                     fleet.locationId = arrivedAtSystem.id;
                                 }
                             } else {
-                                console.warn(`[MovementService] Fleet ${ship.fleetId} not found for ship ${ship.id} (Owner: ${ship.owner})`);
+                                this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Fleet ${ship.fleetId} not found for ship ${ship.id} (Owner: ${ship.owner})`);
                             }
                         }
                         // --- Handle Scout Mission Arrival ---
@@ -135,19 +139,19 @@ export class MovementService {
                             } else {
                                 // Cannot return or was destroyed, mission ends here
                                 delete ship.scoutMission;
-                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: 'IDLE', currentSystemId: ship.currentSystemId });
+                                    this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
                             }
                         } else if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.from) {
                             // Arrived back home from scout mission
                             delete ship.scoutMission;
-                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: 'IDLE' });
+                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE });
                         } else if (ship.salvageMission && arrivedAtSystem.id === ship.salvageMission.from) {
                             // Arrived back home from salvage mission
                             delete ship.salvageMission;
-                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, targetId: null, moveState: 'IDLE' });
+                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, targetId: null, moveState: SHIP_STATE.IDLE });
                         } else {
                             // --- Handle Standard Arrival ---
-                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: 'IDLE', currentSystemId: ship.currentSystemId });
+                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
                             // Standard visibility reveal for any ship
                             if (!arrivedAtSystem.visibility[ship.owner] || arrivedAtSystem.visibility[ship.owner] !== 'explored') {
                                 arrivedAtSystem.visibility[ship.owner] = 'explored';
@@ -160,7 +164,7 @@ export class MovementService {
                         }
                     } else { // Arrived at debris
                         // Just broadcast the arrival, the salvage logic will be handled below in the idle check
-                        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: 'IDLE', currentSystemId: null });
+                        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: null });
                     }
                 }
             }
@@ -176,8 +180,8 @@ export class MovementService {
                 
                 // Safety check: if speed is 0, we will never arrive. Force arrival.
                 if (moveSpeed <= 0) {
-                    console.warn(`[MovementService] Ship ${ship.id} stuck with 0 sublight speed. Forcing arrival.`);
-                    ship.moveState = 'IDLE';
+                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Ship ${ship.id} stuck with 0 sublight speed. Forcing arrival.`);
+                    ship.moveState = SHIP_STATE.IDLE;
                     delete ship.arrivalPoint;
                     this.engine.getCurrentSystem(ship);
                     return;
@@ -188,9 +192,16 @@ export class MovementService {
 
                 ship.x += (dx / dist) * travelDistance;
                 ship.y += (dy / dist) * travelDistance;
+                // Trace log for sublight movement
+                this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, `Ship ${ship.id} SUBLIGHT. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)}) Dist: ${dist.toFixed(1)}`);
             } else {
                 // Final destination reached
-                ship.moveState = 'IDLE';
+                // Snap to exact position to prevent drifting/floating point errors
+                ship.x = ship.arrivalPoint.x;
+                ship.y = ship.arrivalPoint.y;
+
+                ship.moveState = SHIP_STATE.IDLE;
+                this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Ship ${ship.id} reached sublight destination.`);
                 delete ship.arrivalPoint;
                 // The getCurrentSystem logic will now assign its sticky system ID
                 this.engine.getCurrentSystem(ship);
@@ -281,19 +292,19 @@ export class MovementService {
                 delete ship.arrivalPoint;
             }
             
-            console.log(logMsg);
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, logMsg);
 
             ship.targetId = targetId;
             ship.isDeparting = true;
-            ship.moveState = 'MOVING';
+            ship.moveState = SHIP_STATE.MOVING;
              // Broadcast the arrivalPoint so clients know where to move the ship with sublight engines
-            this.engine.broadcast({ type: 'GAME_MOVE', shipId, targetId, moveState: 'MOVING', lastSystemId: ship.lastSystemId, arrivalPoint: ship.arrivalPoint });
+            this.engine.broadcast({ type: 'GAME_MOVE', shipId, targetId, moveState: SHIP_STATE.MOVING, lastSystemId: ship.lastSystemId, arrivalPoint: ship.arrivalPoint });
         }
     }
 
     moveShipToTarget(shipId, targetId) {
         const selectedShip = this.engine.state.ships.find(s => s.id === shipId);
-        if (!selectedShip || selectedShip.moveState !== 'IDLE') return false; // Can only move idle ships
+        if (!selectedShip || selectedShip.moveState !== SHIP_STATE.IDLE) return false; // Can only move idle ships
 
         // If the selected ship is part of a fleet, move the entire fleet.
         if (selectedShip.fleetId) {
@@ -350,7 +361,7 @@ export class MovementService {
     
         const currentSystem = this.engine.getCurrentSystem(ship); // Correctly uses the new method
         if (!currentSystem) {
-            console.warn(`Scout mission request failed: Ship ${shipId} is not in a system.`);
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Scout mission request failed: Ship ${shipId} is not in a system.`);
             return;
         }
     

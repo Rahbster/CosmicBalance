@@ -1,3 +1,5 @@
+import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
+
 const UNSC_NAMES = [
     "Reach", "Tribute", "Harvest", "Arcadia", "Jericho VII", "Mars", "Earth",
     "Sigma Octanus IV", "Coral", "New Alexandria", "Aszod", "Fumirole",
@@ -107,12 +109,13 @@ function shuffleArray(array) {
 }
 
 export class GalaxyService {
-    constructor(canvas) {
+    constructor(canvas, loggingService) {
         this.canvas = canvas;
+        this.loggingService = loggingService;
     }
 
     generateGalaxyMap(numSystems, twoWayDensity = 30, oneWayDensity = 3) {
-        console.log(`[GalaxyGen] Starting generation for ${numSystems} systems.`);
+        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GalaxyGen] Starting generation for ${numSystems} systems.`);
         console.time('[GalaxyGen] Total Time');
 
         const systems = [];
@@ -148,7 +151,7 @@ export class GalaxyService {
             } while (!validPosition && attempts < maxAttempts);
 
             if (!validPosition) {
-                console.warn(`[GalaxyGen] Could not find a valid position for system ${i + 1} after ${maxAttempts} attempts. The galaxy might be too crowded.`);
+                if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.WARNING, `[GalaxyGen] Could not find a valid position for system ${i + 1} after ${maxAttempts} attempts. The galaxy might be too crowded.`);
             }
 
             const systemId = `sys-${i}`;
@@ -243,7 +246,7 @@ export class GalaxyService {
         console.timeEnd('[GalaxyGen] 4. Add One-Way Warps');
 
         console.timeEnd('[GalaxyGen] Total Time');
-        console.log(`[GalaxyGen] Generation complete.`);
+        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GalaxyGen] Generation complete.`);
         return systems;
     }
 

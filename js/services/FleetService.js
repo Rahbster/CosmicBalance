@@ -1,3 +1,5 @@
+import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
+
 export class FleetService {
     constructor(gameEngine) {
         this.engine = gameEngine;
@@ -52,7 +54,7 @@ export class FleetService {
     }
 
     handleMoveFleetRequest({ senderId, fleetId, targetSystemId }) {
-        console.log(`[FleetService] Move request for fleet ${fleetId} to ${targetSystemId}`);
+        this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `[FleetService] Move request for fleet ${fleetId} to ${targetSystemId}`);
         if (!this.engine.isHost) return;
         const player = this.engine.state.players.find(p => p.id === senderId);
         const fleet = player?.fleets.find(f => f.id === fleetId);
@@ -60,7 +62,7 @@ export class FleetService {
 
         // Host re-validates that all ships can move
         fleet.shipIds.forEach(shipId => {
-            console.log(`[FleetService] Moving ship ${shipId} in fleet ${fleetId} to ${targetSystemId}`);
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.DEBUG, `[FleetService] Moving ship ${shipId} in fleet ${fleetId} to ${targetSystemId}`);
             // This re-uses the existing moveShip logic, which already broadcasts the update
             this.engine.moveShip(shipId, targetSystemId);
         });

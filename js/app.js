@@ -8,6 +8,8 @@ import { GameEngine } from './game-engine.js';
 import { TechTreeModal } from './modals/TechTreeModal.js';
 import { FleetManagerModal } from './modals/FleetManagerModal.js';
 import { RadialMenu } from './ui/RadialMenu.js';
+import { LoggingModal } from './modals/LoggingModal.js';
+import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 
 // --- Theme Management ---
 function setTheme(theme) {
@@ -104,6 +106,7 @@ const chatManager = new ChatManager({
 let gameEngine = null;
 let techTreeModal = null;
 let fleetManagerModal = null;
+let loggingModal = null;
 const radialMenu = new RadialMenu();
 
 let colorPicker = null;
@@ -340,6 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gameEngine = new GameEngine(gameCanvas, peerManager, getIdentity, getTeam);
         techTreeModal = new TechTreeModal(gameEngine, getTeam);
         fleetManagerModal = new FleetManagerModal(gameEngine);
+        loggingModal = new LoggingModal(gameEngine);
         gameEngine.start();
 
         // --- Radial Menu Integration ---
@@ -353,9 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 {
                     label: 'Details',
                     action: () => {
-                        // This is already the action for a normal click, but good to have here.
-                        gameEngine.setSelectedShip(entity.id);
-                        toastManager.show('Ship details view not yet implemented.', 'info');
+                        // Explicitly open the panel when "Details" is clicked in the radial menu
+                        gameEngine.setSelectedShip(entity.id, true);
                     }
                 }
             ];
@@ -520,6 +523,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     gameEngine.moveShip(shipId, targetId);
                     toastManager.show('Transport sent.', 'info');
                 } else if (action === 'move-ship') {
+                    const ship = gameEngine.state.ships.find(s => s.id === shipId);
+                    if (ship) {
+                        gameEngine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `[UI] Move Ship requested. Ship: ${ship.id} (${ship.type}), Status: ${ship.moveState}, Target: ${targetId}, CurrentSystem: ${ship.currentSystemId}, ArrivalPoint: ${JSON.stringify(ship.arrivalPoint)}`);
+                    } else {
+                        gameEngine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `[UI] Move Ship requested for unknown ship: ${shipId}`);
+                    }
                     gameEngine.moveShip(shipId, targetId);
                     toastManager.show('Course set.', 'info');
                 } else if (action === 'recycle') {
@@ -549,6 +558,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const itemId = e.target.dataset.itemId;
                     if (!locationId || !itemId) return;
                     gameEngine.requestCancelBuild(locationId, itemId);
+                } else if (action === 'hide-panel') {
+                    gameEngine.closeSelectionPanel();
                 }
             });
         }
@@ -726,6 +737,24 @@ document.addEventListener('DOMContentLoaded', () => {
             hostFactionSelect.addEventListener('change', (e) => {
                 gameEngine.hostView.faction = e.target.value;
             });
+        }
+
+        // Add Logging Button to Sidenav
+        const sidenav = document.getElementById('sidenav');
+        if (sidenav) {
+            const logBtn = document.createElement('button');
+            logBtn.textContent = 'Logging Settings';
+            logBtn.style.width = '100%';
+            logBtn.style.marginTop = '0.5rem';
+            logBtn.onclick = () => {
+                // Close nav
+                sidenav.style.width = "0"; 
+                document.getElementById('overlay').style.display = "none";
+                loggingModal.show();
+            };
+            // Insert before the HR
+            const hr = sidenav.querySelector('hr');
+            if (hr) sidenav.insertBefore(logBtn, hr);
         }
     }
 

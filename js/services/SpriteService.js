@@ -1,7 +1,10 @@
+import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
+
 export class SpriteService {
-    constructor() {
+    constructor(loggingService) {
         this.sprites = {};
         this.isLoaded = false;
+        this.loggingService = loggingService;
     }
 
     async loadSprites() {
@@ -36,7 +39,7 @@ export class SpriteService {
                         resolve();
                     };
                     img.onerror = () => {
-                        console.error(`Failed to load sprite: ${path}`);
+                        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to load sprite: ${path}`);
                         resolve(); // Don't reject, just resolve so the game can continue without this sprite
                     };
                     img.src = path;
@@ -47,7 +50,7 @@ export class SpriteService {
 
         await Promise.all(promises);
         this.isLoaded = true;
-        console.log("All ship sprites loaded.");
+        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "All ship sprites loaded.");
     }
 
     getSprite(faction, shipType) {

@@ -8,6 +8,7 @@ import { CombatService } from './services/CombatService.js';
 import { EconomyService } from './services/EconomyService.js';
 import { MovementService } from './services/MovementService.js';
 import { LoggingService } from './services/LoggingService.js';
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 
 const FACTION_COLORS = [
     '#00A0C0', // Cyan
@@ -36,24 +37,23 @@ export class GameEngine {
             debrisFields: [],
         };
 
+        this.loggingService = new LoggingService(); // Now uses new class structure
+
         // Try to load state from localStorage
         const savedState = localStorage.getItem('cosmic_balance_gamestate');
         if (savedState) {
             this.state = JSON.parse(savedState);
-            console.log("Loaded saved game state from localStorage.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Loaded saved game state from localStorage.");
         } else {
-            console.log("No saved game state found. Initializing empty state.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "No saved game state found. Initializing empty state.");
         }
 
         if (this.state.systems.length > 0) {
-            console.groupCollapsed(`[GameEngine] Initial State - ${this.state.systems.length} Systems, ${this.state.ships.length} Ships`);
-            this.state.systems.forEach(s => console.log(`System: ${s.name} (${s.id}) at ${s.x.toFixed(0)},${s.y.toFixed(0)}`));
-            this.state.ships.forEach(s => console.log(`Ship: ${s.type} (${s.id}) at ${s.x.toFixed(0)},${s.y.toFixed(0)}`));
-            console.groupEnd();
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GameEngine] Initial State - ${this.state.systems.length} Systems, ${this.state.ships.length} Ships`);
         }
 
-        this.galaxyService = new GalaxyService(this.canvas);
-        this.spriteService = new SpriteService();
+        this.galaxyService = new GalaxyService(this.canvas, this.loggingService);
+        this.spriteService = new SpriteService(this.loggingService);
         this.renderService = new RenderService(this.canvas, this, this.spriteService);
         this.interactionService = new InteractionService(this.canvas, this);
         this.aiService = new AIService(this);
@@ -61,7 +61,6 @@ export class GameEngine {
         this.combatService = new CombatService(this);
         this.economyService = new EconomyService(this);
         this.movementService = new MovementService(this);
-        this.loggingService = new LoggingService();
         
         this.selectedShipId = null;
         this.selectedLocationId = null;
@@ -89,6 +88,7 @@ export class GameEngine {
             mode: 'player', // 'player', 'god', or 'faction'
             faction: this.getTeam() // The faction to view as, defaults to own team
         };
+        this.isSelectionPanelOpen = false; // Default to hidden to prevent obstruction
     }
 
     _isShipInSystem(ship, system) {
@@ -126,9 +126,9 @@ export class GameEngine {
         // If a ship has no target, but is still marked as MOVING, its state is inconsistent.
         // This is a defensive check to fix ships that get "stuck" in a moving state.
         // This prevents them from being lost in the UI.
-        if (ship.moveState === 'MOVING' && !ship.arrivalPoint) {
-            console.warn(`Correcting stuck 'MOVING' state for idle ship ${ship.id}`);
-            ship.moveState = 'IDLE';
+        if (ship.moveState === SHIP_STATE.MOVING && !ship.arrivalPoint) {
+            this.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Correcting stuck 'MOVING' state for idle ship ${ship.id}`);
+            ship.moveState = SHIP_STATE.IDLE;
         }
     
         // If it has a "sticky" current system and is still inside, trust that.
@@ -261,7 +261,7 @@ export class GameEngine {
     _saveState() {
         if (this.isHost) {
             localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
-            console.log("Game state saved to localStorage.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Game state saved to localStorage.");
         }
     }
 
@@ -492,7 +492,7 @@ export class GameEngine {
             warp: modifiedData.warp,
             isStation: !!baseData.isStation,
             fleetId: null,
-            moveState: 'IDLE',
+            moveState: SHIP_STATE.IDLE,
             vintageTechs: ownerPlayer ? [...ownerPlayer.researchedTechs] : [],
             currentSystemId: null,
         };
@@ -688,6 +688,8 @@ export class GameEngine {
         const ship = this.state.ships.find(s => s.id === shipId);
         if (ship) {
             this.movementService.moveShip(shipId, targetId);
+        } else {
+            this.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `[GameEngine] moveShip failed: Ship ${shipId} not found.`);
         }
     }
 
@@ -885,21 +887,23 @@ export class GameEngine {
     }
 
     // --- SELECTION AND UI METHODS ---
-    setSelectedShip(shipId) {
+    setSelectedShip(shipId, openPanel = false) {
         // Force a full re-render by clearing the 'renderedFor' cache on the panel
         const container = document.getElementById('selected-planet-info');
         if (container) delete container.dataset.renderedFor;
         this.selectedLocationId = null;
         this.selectedShipId = shipId;
+        this.isSelectionPanelOpen = openPanel;
         this._renderSelectedUI();
     }
 
-    setSelectedLocation(locationId) {
+    setSelectedLocation(locationId, openPanel = true) {
         // Force a full re-render by clearing the 'renderedFor' cache on the panel
         const container = document.getElementById('selected-planet-info');
         if (container) delete container.dataset.renderedFor;
         this.selectedShipId = null;
         this.selectedLocationId = locationId;
+        this.isSelectionPanelOpen = openPanel;
         this._renderSelectedUI();
     }
 
@@ -929,7 +933,7 @@ export class GameEngine {
     }
 
     _renderSelectedUI() {
-        if (this.selectedShipId) {
+        if (this.isSelectionPanelOpen && this.selectedShipId) {
             this._renderSelectedShipUI();
         } else if (this.selectedLocationId) {
             this._renderSelectedLocationUI();
@@ -937,6 +941,16 @@ export class GameEngine {
             const container = document.getElementById('selected-planet-info');
             container.classList.add('hidden');
         }
+    }
+
+    openSelectionPanel() {
+        this.isSelectionPanelOpen = true;
+        this._renderSelectedUI();
+    }
+
+    closeSelectionPanel() {
+        this.isSelectionPanelOpen = false;
+        this._renderSelectedUI();
     }
 
     _renderSelectedShipUI() {
@@ -1079,7 +1093,10 @@ export class GameEngine {
         // This is where the context menu becomes a context panel.
         // We render buttons for actions.
         let html = `
-            <h3>${ship.type}</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0;">${ship.type}</h3>
+                <button data-action="hide-panel" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.2em;" title="Hide Panel">▼</button>
+            </div>
             <p>Owner: ${owner?.factionName || 'Unknown'}</p>
             ${fleetInfoHtml}
             <p>Location: ${locationName}</p>
@@ -1098,6 +1115,11 @@ export class GameEngine {
     }
 
     _renderSelectedLocationUI() {
+        // For locations, we generally want the panel open to build/manage, but we respect the flag if set explicitly.
+        if (!this.isSelectionPanelOpen) {
+            document.getElementById('selected-planet-info').classList.add('hidden');
+            return;
+        }
         const container = document.getElementById('selected-planet-info');
         this.selectedShipId = null; // Ensure no ship is selected
         if (!this.selectedLocationId) {
@@ -1265,7 +1287,10 @@ export class GameEngine {
         }
 
         // --- Part 3: Full Render (if selection changed) ---
-        let html = `<h3>${location.name || builder.type}</h3>`;
+        let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">${location.name || builder.type}</h3>
+            <button data-action="hide-panel" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.2em;" title="Hide Panel">▼</button>
+        </div>`;
         html += `<div style="margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
                     <button id="context-open-tech-tree">Tech Tree</button>
                     <button id="context-open-fleet-manager">Fleets</button>
