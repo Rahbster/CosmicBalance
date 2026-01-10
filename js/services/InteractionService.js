@@ -57,7 +57,8 @@ export class InteractionService {
                 if (!isHostGodView && (!visibility || visibility === 'unexplored')) return false;
                 const dx = p.x - x;
                 const dy = p.y - y;
-                return (dx * dx + dy * dy) < (p.r * p.r);
+                const clickRadius = this.engine.getSystemEffectiveRadius(p);
+                return (dx * dx + dy * dy) < (clickRadius * clickRadius);
             });
 
             const clickedDebris = this.state.debrisFields.filter(d => { // NEW
@@ -97,7 +98,8 @@ export class InteractionService {
 
             // Handle the closest entity found
             if (closestEntity) {
-                const clickedShipIsSelected = this.engine.selectedShipId && closestEntity.type === 'ship' && closestEntity.entity.id === this.engine.selectedShipId;
+                const selectedShipId = this.engine.selectionManager.selectedShipId;
+                const clickedShipIsSelected = selectedShipId && closestEntity.type === 'ship' && closestEntity.entity.id === selectedShipId;
 
                 // If a ship is already selected and we click on that *same* ship,
                 // check if there's a system underneath it that we should prioritize instead (de-selection).
@@ -128,11 +130,11 @@ export class InteractionService {
                     const system = closestEntity.entity;
                     let moveSuccessful = false;
 
-                    if (this.engine.selectedShipId) {
-                        const ship = this.state.ships.find(s => s.id === this.engine.selectedShipId);
+                    if (selectedShipId) {
+                        const ship = this.state.ships.find(s => s.id === selectedShipId);
                         // Don't try to move stations (hex structures)
                         if (ship && !ship.isStation) {
-                            moveSuccessful = this.engine.moveShipToTarget(this.engine.selectedShipId, system.id);
+                            moveSuccessful = this.engine.moveShipToTarget(selectedShipId, system.id);
                         }
                     }
 
@@ -141,9 +143,9 @@ export class InteractionService {
                     }
                 } else if (closestEntity.type === 'debris') {
                     const debris = closestEntity.entity;
-                    if (this.engine.selectedShipId) {
+                    if (selectedShipId) {
                         // moveShipToTarget will validate if the ship is a salvager
-                        this.engine.moveShipToTarget(this.engine.selectedShipId, debris.id);
+                        this.engine.moveShipToTarget(selectedShipId, debris.id);
                     }
                     return; // Don't fall through to panning
                 }

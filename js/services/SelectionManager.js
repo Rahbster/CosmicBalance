@@ -461,7 +461,7 @@ export class SelectionManager {
             return;
         }
 
-        const techData = this.engine._techData[player.team];
+        const techData = this.engine.techService.getTechData()?.[player.team];
         if (!techData) return;
 
         let researchQueueHtml = '<h4>Research In Progress</h4><ul class="research-queue-list">';

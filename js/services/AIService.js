@@ -8,10 +8,10 @@ export class AIService {
     }
 
     run(dt) {
-        if (!this.engine.isHost || !this.engine.state.players || !this.engine._techData) return;
+        if (!this.engine.isHost || !this.engine.state.players || !this.engine.techService.getTechData()) return;
 
         const aiPlayers = this.engine.state.players.filter(p => p.isAI);
-        const techData = this.engine._techData;
+        const techData = this.engine.techService.getTechData();
 
         for (const aiPlayer of aiPlayers) {
             aiPlayer.actionTimer = (aiPlayer.actionTimer || 0) + dt;

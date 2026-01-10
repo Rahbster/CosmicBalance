@@ -12,43 +12,17 @@ import { LoggingModal } from './modals/LoggingModal.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 import { UIManager } from './ui/UIManager.js';
 
-// --- Theme Management ---
-function setTheme(theme) {
-    document.body.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) {
-        themeToggle.textContent = theme === 'dark' ? '☀️' : '🌓';
-    }
-}
+let gameEngine = null;
+let uiManager = new UIManager(null); // Initialize early for theme
 
 // Initialize Theme on script load to prevent flash of wrong theme
 const savedTheme = localStorage.getItem('theme');
 const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
 if (savedTheme) {
-    setTheme(savedTheme);
+    uiManager.setTheme(savedTheme);
 } else {
-    setTheme(prefersDarkScheme.matches ? 'dark' : 'light');
+    uiManager.setTheme(prefersDarkScheme.matches ? 'dark' : 'light');
 }
-
-const FACTION_COLORS = [
-    '#00A0C0', // Cyan
-    '#CC3333', // Red
-    '#33CC33', // Green
-    '#EFB82A', // Yellow
-    '#9400D3', // Purple
-    '#FF8C00', // Orange
-    '#FFFFFF', // White
-    '#FF69B4'  // Pink
-];
-
-const RESOURCE_TYPES = [
-    { key: 'IO', domId: 'res-io', label: 'IO', icon: '🪙', cssClass: 'icon-io', title: 'Inter-system Organizational Credits' },
-    { key: 'minerals', domId: 'res-minerals', label: 'Minerals', icon: '💎', cssClass: 'icon-minerals', title: 'Minerals' },
-    { key: 'energy', domId: 'res-energy', label: 'Energy', icon: '⚡', cssClass: 'icon-energy', title: 'Energy', threshold: 20 },
-    { key: 'food', domId: 'res-food', label: 'Food', icon: '🌾', cssClass: 'icon-food', title: 'Food', threshold: 20 },
-    { key: 'scrap', domId: 'res-scrap', label: 'Scrap', icon: '⚙️', cssClass: 'icon-scrap', title: 'Scrap' }
-];
 
 // --- User Identity & Peer History ---
 function getIdentity() {
@@ -94,8 +68,6 @@ function saveTeam(team) {
     localStorage.setItem('pwa_team', team);
 }
 
-let gameEngine = null;
-let uiManager = new UIManager(null); // Initialize early for theme
 const peerManager = new PeerManager();
 let currentRemoteName = 'Peer';
 
@@ -132,20 +104,6 @@ async function copyToClipboard(id) {
     }
 }
 
-function renderResourceHeader() {
-    const container = document.getElementById('resource-list');
-    if (!container) return;
-    container.innerHTML = RESOURCE_TYPES.map(res => `
-        <span title="${res.title}">
-            <span class="res-label">${res.label}</span>
-            <span class="res-value-group">
-                <strong id="${res.domId}">0</strong>
-                <i class="${res.cssClass}">${res.icon}</i>
-            </span>
-        </span>
-    `).join('');
-}
-
 // --- PeerManager Callbacks ---
 peerManager.onMessage((data) => {
     // Handle incoming data (chat or game state)
@@ -167,12 +125,12 @@ peerManager.onMessage((data) => {
             gameEngine.setState(data.state);
             const localPlayer = gameEngine.getLocalPlayer();
             if (localPlayer) setVal('faction-name-input', localPlayer.factionName);
-            updateColorPickerUI();
+            uiManager.updateColorPickerUI();
         }
     } else if (data.type === 'GAME_PLAYER_UPDATE') {
         if (gameEngine) {
             gameEngine.handlePeerMessage(data); // Let engine update state
-            updateColorPickerUI(); // Refresh color picker availability
+            uiManager.updateColorPickerUI(); // Refresh color picker availability
         }
     } else if (data.type === 'GAME_PROMPT_RENAME') {
         const localPlayerId = getIdentity().guid;
@@ -195,8 +153,8 @@ peerManager.onStatusChange((status) => {
 window.addEventListener('local-message', (e) => {
     const data = e.detail;
     if (data.type === 'GAME_PLAYER_UPDATE') {
-        updateColorPickerUI(); // Refresh color picker availability
-        updateHeaderUI();
+        uiManager.updateColorPickerUI(); // Refresh color picker availability
+        uiManager.updateHeaderUI();
     }
 });
 
@@ -329,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (themeToggle) {
         themeToggle.addEventListener('click', () => {
             const currentTheme = document.body.getAttribute('data-theme');
-            setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+            uiManager.setTheme(currentTheme === 'dark' ? 'light' : 'dark');
         });
     }
 
@@ -686,9 +644,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (localPlayer) {
             setVal('faction-name-input', localPlayer.factionName);
         }
-        renderResourceHeader();
-        updateHeaderUI();
-        updateColorPickerUI();
+        uiManager.renderResourceHeader();
+        uiManager.updateHeaderUI();
+        uiManager.updateColorPickerUI();
 
         // If the user is the host (default for local play), show host controls.
         if (gameEngine.isHost) {
@@ -801,103 +759,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
-
-function formatNumber(num) {
-    if (num === undefined || num === null) return '0';
-    const n = Math.floor(num);
-    if (n < 1000) return n.toString();
-    if (n < 1000000) return (n / 1000).toFixed(2) + 'K';
-    if (n < 1000000000) return (n / 1000000).toFixed(2) + 'M';
-    return (n / 1000000000).toFixed(2) + 'B';
-}
-
-function updateHeaderUI() {
-    if (!gameEngine) return;
-    const localPlayer = gameEngine.getLocalPlayer();
-    const resourceDisplay = document.getElementById('resource-display');
-    if (!localPlayer || !localPlayer.resources) {
-        resourceDisplay.style.display = 'none';
-        return;
-    }
-    resourceDisplay.style.display = 'flex';
-
-    const controlledSystems = gameEngine.state.systems.filter(s => s.owner === localPlayer.id).length;
-
-    const updateResource = (id, value, threshold = 0) => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.textContent = formatNumber(value);
-            if (value <= threshold) el.classList.add('low-resource');
-            else el.classList.remove('low-resource');
-        }
-    };
-
-    RESOURCE_TYPES.forEach(res => {
-        updateResource(res.domId, localPlayer.resources[res.key], res.threshold || 0);
-    });
-    
-    // Update System Counts by Participant
-    const systemList = document.getElementById('system-list');
-    if (systemList) {
-        systemList.innerHTML = '';
-        gameEngine.state.players.forEach(p => {
-            const count = gameEngine.state.systems.filter(s => s.owner === p.id).length;
-            
-            const span = document.createElement('span');
-            span.title = `${p.factionName} Controlled Systems`;
-            span.style.setProperty('--player-color', p.color);
-            // span styles handled by CSS now (flex, space-between)
-            span.style.cursor = 'help';
-
-            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.classList.add("icon-svg", "system-flag");
-            svg.setAttribute("viewBox", "0 0 24 24");
-            
-            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", "M12.45 4L12 2H4v18h2v-7h5.55l.45 2h8V4h-7.55z");
-            svg.appendChild(path);
-
-            // Create label
-            const label = document.createElement('span');
-            label.className = 'res-label';
-            label.textContent = p.factionName;
-            span.appendChild(label);
-
-            // Create value group
-            span.innerHTML += `<span class="res-value-group"><strong>${count}</strong></span>`;
-            span.querySelector('.res-value-group').appendChild(svg);
-
-            systemList.appendChild(span);
-        });
-    }
-}
-
-function updateColorPickerUI() {
-    if (!colorPicker || !gameEngine) return;
-    colorPicker.innerHTML = '';
-
-    const localPlayer = gameEngine.getLocalPlayer();
-    const takenColors = gameEngine.state.players
-        .filter(p => p.id !== localPlayer?.id)
-        .map(p => p.color);
-
-    FACTION_COLORS.forEach(color => {
-        const isMyColor = localPlayer && localPlayer.color === color;
-        const isTakenByOther = takenColors.includes(color);
-
-        // Only render the swatch if it's the player's current color, or if it's not taken by another player.
-        if (isMyColor || !isTakenByOther) {
-            const swatch = document.createElement('div');
-            swatch.className = 'color-swatch';
-            swatch.style.backgroundColor = color;
-            swatch.dataset.color = color;
-
-            if (isMyColor) {
-                swatch.classList.add('selected');
-            } else {
-                swatch.addEventListener('click', () => gameEngine.requestPlayerUpdate({ color: color }));
-            }
-            colorPicker.appendChild(swatch);
-        }
-    });
-}

@@ -33,9 +33,10 @@ export class EconomyService {
 
             // Apply tech modifiers
             let energyModifier = 1.0;
-            if (this.engine._techData) {
+            const techData = this.engine.techService.getTechData();
+            if (techData) {
                 player.researchedTechs.forEach(techId => {
-                    const tech = this.engine._techData[player.team]?.[techId];
+                    const tech = techData[player.team]?.[techId];
                     tech?.effects?.forEach(effect => {
                         if (effect.type === 'ENERGY_MODIFIER') {
                             energyModifier *= effect.value;
@@ -167,7 +168,7 @@ export class EconomyService {
                 if (ship.repairTimer <= 0) {
                     const ownerPlayer = this.engine.state.players.find(p => p.id === ship.owner);
                     const baseData = { ...SHIP_DATA[ship.type] };
-                    const modifiedData = this.engine._applyTechToShipData(baseData, ownerPlayer);
+                    const modifiedData = this.engine.techService.applyTechToShipData(baseData, ownerPlayer);
 
                     // Apply the upgrade/repair
                     ship.maxHull = Math.round(modifiedData.maxHull);
@@ -369,7 +370,7 @@ export class EconomyService {
         const player = this.engine.state.players.find(p => p.id === senderId);
         if (!player) return;
 
-        const techData = this.engine._techData[player.team];
+        const techData = this.engine.techService.getTechData()?.[player.team];
         const tech = techData ? techData[techId] : null;
 
         if (tech) {

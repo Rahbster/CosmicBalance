@@ -97,12 +97,9 @@ export class MovementService {
                         if (ship.navigationPath && ship.navigationPath.length > 0) {
                             const nextSystemId = ship.navigationPath.shift();
                             this.moveShip(ship.id, nextSystemId);
-                            // We don't return here, allowing other arrival logic (like scouting reports) to fire if applicable,
-                            // though usually intermediate stops are just for travel.
-                            if (ship.navigationPath.length > 0) {
-                                // If we are just passing through, we might want to skip the "Idle" state broadcast to keep it smooth
-                                return; 
-                            }
+                            // We must return here to prevent the "Standard Arrival" logic below from firing,
+                            // which would broadcast an IDLE state and cancel the move we just started.
+                            return;
                         }
                         // --- Handle Scout Mission Arrival ---
                         if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.to) {
