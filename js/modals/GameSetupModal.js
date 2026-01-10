@@ -21,6 +21,11 @@ export function showGameSetupModal() {
                         <span id="resource-rate-value">100%</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="ship-speed-rate">Ship Speed:</label>
+                        <input type="range" id="ship-speed-rate" min="10" max="1000" value="100" step="10" style="flex-grow: 1;">
+                        <span id="ship-speed-rate-value">100%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
                         <label for="two-way-density">2-Way Warps (30%):</label>
                         <input type="range" id="two-way-density" min="10" max="100" value="30" style="flex-grow: 1;">
                         <span id="two-way-density-value">30%</span>
@@ -51,6 +56,8 @@ export function showGameSetupModal() {
     const oneWayValue = document.getElementById('one-way-density-value');
     const resourceRateSlider = document.getElementById('resource-rate');
     const resourceRateValue = document.getElementById('resource-rate-value');
+    const shipSpeedSlider = document.getElementById('ship-speed-rate');
+    const shipSpeedValue = document.getElementById('ship-speed-rate-value');
 
     // 3. Helper Functions
     function closeModal() {
@@ -68,6 +75,7 @@ export function showGameSetupModal() {
     if (twoWaySlider) twoWaySlider.addEventListener('input', () => twoWayValue.textContent = `${twoWaySlider.value}%`);
     if (oneWaySlider) oneWaySlider.addEventListener('input', () => oneWayValue.textContent = `${oneWaySlider.value}%`);
     if (resourceRateSlider) resourceRateSlider.addEventListener('input', () => resourceRateValue.textContent = `${resourceRateSlider.value}%`);
+    if (shipSpeedSlider) shipSpeedSlider.addEventListener('input', () => shipSpeedValue.textContent = `${shipSpeedSlider.value}%`);
 
     // 5. Show the modal
     modal.classList.remove('hidden');

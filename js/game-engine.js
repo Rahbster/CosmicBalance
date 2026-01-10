@@ -291,7 +291,7 @@ export class GameEngine {
         return localPlayer ? localPlayer.team : this.getTeam();
     }
 
-    async createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate }) {
+    async createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate }) {
     
         this.isHost = true;
 
@@ -319,7 +319,8 @@ export class GameEngine {
         this.selectedLocationId = null;
         this.selectedShipId = null;
         this.state.settings = {
-            resourceRate: resourceRate || 1.0
+            resourceRate: resourceRate || 1.0,
+            shipSpeedRate: shipSpeedRate || 1.0
         };
 
         await this._getTechData(); // Pre-load tech data for the host.
@@ -719,6 +720,7 @@ export class GameEngine {
                 ship.targetId = data.targetId;
                 ship.arrivalPoint = data.arrivalPoint;
                 ship.currentSystemId = null;
+                if (data.navigationPath) ship.navigationPath = data.navigationPath;
                 if (data.lastSystemId) ship.lastSystemId = data.lastSystemId;
                 // Also clear patrol state when a move order is given
                 if (ship.patrolSystemId) delete ship.patrolSystemId;

@@ -6,8 +6,11 @@ export class MovementService {
     }
 
     update(dt) {
-        const WARP_SPEED_FACTOR = 150;
-        const SUBLIGHT_SPEED_FACTOR = 10;
+        // Base speeds are halved so that 100% setting = 50% of original speed.
+        // Original: Warp 150, Sublight 10. New Base: Warp 75, Sublight 5.
+        const speedMultiplier = (this.engine.state.settings?.shipSpeedRate || 1.0);
+        const WARP_SPEED_FACTOR = 75 * speedMultiplier;
+        const SUBLIGHT_SPEED_FACTOR = 5 * speedMultiplier;
 
         const shipsToUpdate = this.engine.state.ships.filter(s => s.targetId || s.arrivalPoint || (this.engine.isHost && s.patrolSystemId));
         const fleetSpeeds = {}; // Cache for fleet speeds
@@ -87,6 +90,18 @@ export class MovementService {
                                 }
                             } else {
                                 this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Fleet ${ship.fleetId} not found for ship ${ship.id} (Owner: ${ship.owner})`);
+                            }
+                        }
+
+                        // --- Handle Multi-Hop Navigation ---
+                        if (ship.navigationPath && ship.navigationPath.length > 0) {
+                            const nextSystemId = ship.navigationPath.shift();
+                            this.moveShip(ship.id, nextSystemId);
+                            // We don't return here, allowing other arrival logic (like scouting reports) to fire if applicable,
+                            // though usually intermediate stops are just for travel.
+                            if (ship.navigationPath.length > 0) {
+                                // If we are just passing through, we might want to skip the "Idle" state broadcast to keep it smooth
+                                return; 
                             }
                         }
                         // --- Handle Scout Mission Arrival ---
@@ -297,8 +312,12 @@ export class MovementService {
             ship.targetId = targetId;
             ship.isDeparting = true;
             ship.moveState = SHIP_STATE.MOVING;
+            
+            // If we are just moving to the next step of a path, ensure the path is preserved/broadcast
+            // If this is a new manual move, navigationPath might be set by moveShipToTarget before calling this.
+            
              // Broadcast the arrivalPoint so clients know where to move the ship with sublight engines
-            this.engine.broadcast({ type: 'GAME_MOVE', shipId, targetId, moveState: SHIP_STATE.MOVING, lastSystemId: ship.lastSystemId, arrivalPoint: ship.arrivalPoint });
+            this.engine.broadcast({ type: 'GAME_MOVE', shipId, targetId, moveState: SHIP_STATE.MOVING, lastSystemId: ship.lastSystemId, arrivalPoint: ship.arrivalPoint, navigationPath: ship.navigationPath });
         }
     }
 
@@ -325,10 +344,22 @@ export class MovementService {
         if (targetSystem) {
             const originSystem = this.engine.getCurrentSystem(selectedShip);
 
-            // We need an origin system to check for valid links.
-            if (originSystem && originSystem.links.some(l => l.targetId === targetId)) {
-                this.moveShip(shipId, targetId);
-                return true;
+            if (originSystem) {
+                // Check for direct link first (optimization)
+                if (originSystem.links.some(l => l.targetId === targetId)) {
+                    selectedShip.navigationPath = []; // Clear any old path
+                    this.moveShip(shipId, targetId);
+                    return true;
+                } else {
+                    // Find path for multi-hop
+                    const path = this.findPath(originSystem.id, targetId);
+                    if (path && path.length > 0) {
+                        const nextStep = path.shift();
+                        selectedShip.navigationPath = path; // Store the rest of the path
+                        this.moveShip(shipId, nextStep);
+                        return true;
+                    }
+                }
             }
         }
 
@@ -340,6 +371,35 @@ export class MovementService {
         }
 
         return false;
+    }
+
+    findPath(startSystemId, targetSystemId) {
+        const systems = this.engine.state.systems;
+        const queue = [[startSystemId]];
+        const visited = new Set([startSystemId]);
+
+        while (queue.length > 0) {
+            const path = queue.shift();
+            const currentId = path[path.length - 1];
+
+            if (currentId === targetSystemId) {
+                return path.slice(1); // Return path excluding start
+            }
+
+            const currentSystem = systems.find(s => s.id === currentId);
+            if (currentSystem) {
+                for (const link of currentSystem.links) {
+                    if (!visited.has(link.targetId)) {
+                        // Check if the target system is known/visible to the player?
+                        // The prompt says "any known star system". 
+                        // Assuming the UI prevents clicking unknown systems, we just need graph connectivity here.
+                        visited.add(link.targetId);
+                        queue.push([...path, link.targetId]);
+                    }
+                }
+            }
+        }
+        return null; // No path found
     }
 
     requestScoutMission(shipId, targetSystemId) {

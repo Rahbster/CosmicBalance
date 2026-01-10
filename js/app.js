@@ -739,22 +739,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Add Logging Button to Sidenav
-        const sidenav = document.getElementById('sidenav');
-        if (sidenav) {
-            const logBtn = document.createElement('button');
-            logBtn.textContent = 'Logging Settings';
-            logBtn.style.width = '100%';
-            logBtn.style.marginTop = '0.5rem';
-            logBtn.onclick = () => {
-                // Close nav
-                sidenav.style.width = "0"; 
-                document.getElementById('overlay').style.display = "none";
+        // Logging Modal Logic
+        const btnOpenLoggingModal = document.getElementById('btn-open-logging-modal');
+        if (btnOpenLoggingModal) {
+            btnOpenLoggingModal.addEventListener('click', () => {
+                closeNav();
                 loggingModal.show();
-            };
-            // Insert before the HR
-            const hr = sidenav.querySelector('hr');
-            if (hr) sidenav.insertBefore(logBtn, hr);
+            });
         }
     }
 
@@ -770,8 +761,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
             const resourceRate = parseInt(document.getElementById('resource-rate').value, 10) / 100; // Convert percentage to multiplier
+            const shipSpeedRate = parseInt(document.getElementById('ship-speed-rate').value, 10) / 100; // Convert percentage to multiplier
 
-            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate });
+            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
             toastManager.show('New game created and sent to peers!', 'success');
 

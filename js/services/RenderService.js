@@ -316,7 +316,9 @@ export class RenderService {
         if (planet.owner) {
             const ownerPlayer = this.gameEngine.state.players.find(p => p.id === planet.owner);
             ctx.strokeStyle = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 2 / this.gameEngine.zoom; // Make it visible like the capture ring
+            ctx.beginPath();
+            ctx.arc(x, y, finalRadius + (3 / this.gameEngine.zoom), 0, Math.PI * 2);
             ctx.stroke();
         }
 
