@@ -9,6 +9,7 @@ export class EconomyService {
 
     runResourceGeneration(dt) {
         const timeFactor = dt / 1000 / 60; // Convert yield-per-minute to yield-per-frame
+        const resourceRate = this.engine.state.settings?.resourceRate || 1.0;
 
         // Calculate income for each player
         this.engine.state.players.forEach(player => {
@@ -42,6 +43,11 @@ export class EconomyService {
                 });
             }
             income.energy *= energyModifier;
+
+            // Apply global resource rate multiplier
+            Object.keys(income).forEach(key => {
+                income[key] *= resourceRate;
+            });
 
             // Apply income to player resources
             if (income.IO > 0) { player.resources.IO += income.IO * timeFactor; hasIncome = true; }
@@ -105,7 +111,14 @@ export class EconomyService {
                     firstItem.remainingTime -= dt;
                     if (firstItem.remainingTime <= 0) {
                         // Build complete
-                        this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y });
+                        let spawnSystem = null;
+                        if (location.isStation) {
+                            spawnSystem = this.engine.getCurrentSystem(location);
+                        } else {
+                            spawnSystem = location; // It is a system
+                        }
+
+                        this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem);
                         location.buildQueue.shift();
                         // Broadcast that the queue has changed (item finished)
                         this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });

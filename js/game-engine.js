@@ -117,15 +117,16 @@ export class GameEngine {
 
     getCurrentSystem(ship) {
         // A ship in transit is not "in" any system.
-        // A ship is considered in transit if it has a warp target or a sublight arrival point.
-        if (ship.targetId || ship.arrivalPoint) {
+        // A ship is considered in transit if it has a warp target.
+        // We allow arrivalPoint (sublight) to be considered in-system so ships don't appear lost while parking.
+        if (ship.targetId) {
             return null;
         }
 
         // If a ship has no target, but is still marked as MOVING, its state is inconsistent.
         // This is a defensive check to fix ships that get "stuck" in a moving state.
         // This prevents them from being lost in the UI.
-        if (ship.moveState === 'MOVING') {
+        if (ship.moveState === 'MOVING' && !ship.arrivalPoint) {
             console.warn(`Correcting stuck 'MOVING' state for idle ship ${ship.id}`);
             ship.moveState = 'IDLE';
         }
@@ -290,7 +291,8 @@ export class GameEngine {
         return localPlayer ? localPlayer.team : this.getTeam();
     }
 
-    async createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity }) {
+    async createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate }) {
+    
         this.isHost = true;
 
         const availableColors = [...FACTION_COLORS];
@@ -316,6 +318,9 @@ export class GameEngine {
         this.state.debrisFields = [];
         this.selectedLocationId = null;
         this.selectedShipId = null;
+        this.state.settings = {
+            resourceRate: resourceRate || 1.0
+        };
 
         await this._getTechData(); // Pre-load tech data for the host.
         await this.spriteService.loadSprites(); // Pre-load sprites
@@ -343,8 +348,8 @@ export class GameEngine {
                 homeSystem.visibility[player.id] = 'explored';
 
                 // 4. Spawn starting units (Station + Scout)
-                this._spawnShip(player, 'SpaceStation', { x: homeSystem.x, y: homeSystem.y });
-                this._spawnShip(player, 'Scout', { x: homeSystem.x + 30, y: homeSystem.y + 30 });
+                this._spawnShip(player, 'SpaceStation', { x: homeSystem.x, y: homeSystem.y }, homeSystem);
+                this._spawnShip(player, 'Scout', { x: homeSystem.x + 30, y: homeSystem.y + 30 }, homeSystem);
             }
         });
 
@@ -444,21 +449,39 @@ export class GameEngine {
     }
 
     // Internal method to create and broadcast a ship. Does not handle costs.
-    _spawnShip(owner, type, position) {
+    _spawnShip(owner, type, position, spawnInSystem = null) {
         const id = crypto.randomUUID();
         const baseData = { ...SHIP_DATA[type] }; // Create a mutable copy
         const ownerPlayer = this.state.players.find(p => p.id === owner.id);
 
         const modifiedData = this._applyTechToShipData(baseData, ownerPlayer);
         
+        // Calculate position with jitter
+        let x = position.x + (Math.random() * 40 - 20); // Reduced jitter range (+/- 20)
+        let y = position.y + (Math.random() * 40 - 20);
+
+        // If a system context is provided, ensure the ship spawns inside it
+        if (spawnInSystem) {
+            const dx = x - spawnInSystem.x;
+            const dy = y - spawnInSystem.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = this.getSystemEffectiveRadius(spawnInSystem) - 5; // 5px buffer
+
+            if (dist > maxDist) {
+                const angle = Math.atan2(dy, dx);
+                x = spawnInSystem.x + Math.cos(angle) * maxDist;
+                y = spawnInSystem.y + Math.sin(angle) * maxDist;
+            }
+        }
+
         const ship = {
             id: id,
             owner: owner.id,
             type: type,
             color: owner.color,
             team: owner.team,
-            x: position.x + (Math.random() * 80 - 40),
-            y: position.y + (Math.random() * 80 - 40),
+            x: x,
+            y: y,
             hull: Math.round(modifiedData.maxHull),
             maxHull: Math.round(modifiedData.maxHull),
             shield: Math.round(modifiedData.maxShield),
@@ -481,25 +504,36 @@ export class GameEngine {
         this.broadcast({ type: 'GAME_SPAWN', ship });
 
         // Set initial system after broadcasting spawn so clients can do the same
-        const spawnSystem = this.state.systems.find(s => {
-            const dx = s.x - ship.x;
-            const dy = s.y - ship.y;
-            return (dx * dx + dy * dy) <= (this.getSystemEffectiveRadius(s) ** 2);
-        });
-        if (spawnSystem) ship.currentSystemId = spawnSystem.id;
+        if (spawnInSystem) {
+            ship.currentSystemId = spawnInSystem.id;
+        } else {
+            const detectedSystem = this.state.systems.find(s => {
+                const dx = s.x - ship.x;
+                const dy = s.y - ship.y;
+                return (dx * dx + dy * dy) <= (this.getSystemEffectiveRadius(s) ** 2);
+            });
+            if (detectedSystem) ship.currentSystemId = detectedSystem.id;
+        }
 
     }
 
     async start() {
-        // Resize canvas to fit container
-        this.canvas.width = this.canvas.parentElement.clientWidth;
-        this.canvas.height = 600;        
+        // Resize canvas to fit window
+        this.resizeCanvas();
+        window.addEventListener('resize', () => this.resizeCanvas());
+
         // Load sprites and tech data before starting the loop
         await Promise.all([
             this.spriteService.loadSprites(),
             this._getTechData()
         ]);
         requestAnimationFrame((t) => this.loop(t));
+    }
+
+    resizeCanvas() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.draw();
     }
 
     loop(timestamp) {

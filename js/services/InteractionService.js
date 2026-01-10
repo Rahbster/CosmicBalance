@@ -181,6 +181,14 @@ export class InteractionService {
             if (this.isPanning) {
                 const coords = this.getMousePos(e);
                 this.engine.logDiagnostics('pan end', e, coords);
+
+                const dx = e.clientX - this.mouseStart.x;
+                const dy = e.clientY - this.mouseStart.y;
+                if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+                    this.engine.setSelectedShip(null);
+                    this.engine.setSelectedLocation(null);
+                }
+
                 this.isPanning = false;
                 this.canvas.style.cursor = 'default';
             }

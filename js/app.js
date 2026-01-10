@@ -39,6 +39,14 @@ const FACTION_COLORS = [
     '#FF69B4'  // Pink
 ];
 
+const RESOURCE_TYPES = [
+    { key: 'IO', domId: 'res-io', label: 'IO', icon: '🪙', cssClass: 'icon-io', title: 'Inter-system Organizational Credits' },
+    { key: 'minerals', domId: 'res-minerals', label: 'Minerals', icon: '💎', cssClass: 'icon-minerals', title: 'Minerals' },
+    { key: 'energy', domId: 'res-energy', label: 'Energy', icon: '⚡', cssClass: 'icon-energy', title: 'Energy', threshold: 20 },
+    { key: 'food', domId: 'res-food', label: 'Food', icon: '🌾', cssClass: 'icon-food', title: 'Food', threshold: 20 },
+    { key: 'scrap', domId: 'res-scrap', label: 'Scrap', icon: '⚙️', cssClass: 'icon-scrap', title: 'Scrap' }
+];
+
 // --- User Identity & Peer History ---
 function getIdentity() {
     let guid = localStorage.getItem('pwa_user_guid');
@@ -117,6 +125,20 @@ async function copyToClipboard(id) {
             toastManager.show("Failed to copy to clipboard", 'error');
         }
     }
+}
+
+function renderResourceHeader() {
+    const container = document.getElementById('resource-list');
+    if (!container) return;
+    container.innerHTML = RESOURCE_TYPES.map(res => `
+        <span title="${res.title}">
+            <span class="res-label">${res.label}</span>
+            <span class="res-value-group">
+                <strong id="${res.domId}">0</strong>
+                <i class="${res.cssClass}">${res.icon}</i>
+            </span>
+        </span>
+    `).join('');
 }
 
 // --- PeerManager Callbacks ---
@@ -569,13 +591,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 /* Neon Glow / Sci-Fi HUD Styles */
                 .resource-display {
+                    position: absolute;
+                    top: 70px;
+                    left: 10px;
+                    z-index: 10;
+                    width: 220px;
                     background-color: rgba(0, 20, 30, 0.85);
                     border: 1px solid rgba(0, 242, 255, 0.3);
                     box-shadow: 0 0 15px rgba(0, 242, 255, 0.2), inset 0 0 10px rgba(0, 242, 255, 0.1);
                     backdrop-filter: blur(4px);
                     padding: 0.5rem 1rem;
                     border-radius: 8px;
-                    margin: 0.5rem;
                     display: flex; flex-direction: column; gap: 5px; /* Ensure vertical stacking */
                 }
                 .resource-display strong {
@@ -593,7 +619,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 /* Resource Display Layout Updates */
-                .resource-display > span {
+                #resource-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
+                    width: 100%;
+                }
+                #resource-list > span {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
@@ -626,6 +658,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     filter: drop-shadow(0 0 5px var(--player-color));
                     transition: 0.2s;
                 }
+                .app-header {
+                    position: relative;
+                    z-index: 100;
+                }
             `;
             document.head.appendChild(style);
         }
@@ -635,6 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (localPlayer) {
             setVal('faction-name-input', localPlayer.factionName);
         }
+        renderResourceHeader();
         updateHeaderUI();
         updateColorPickerUI();
 
@@ -703,8 +740,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
+            const resourceRate = parseInt(document.getElementById('resource-rate').value, 10) / 100; // Convert percentage to multiplier
 
-            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity });
+            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
             toastManager.show('New game created and sent to peers!', 'success');
 
@@ -769,11 +807,9 @@ function updateHeaderUI() {
         }
     };
 
-    updateResource('res-io', localPlayer.resources.IO);
-    updateResource('res-minerals', localPlayer.resources.minerals);
-    updateResource('res-energy', localPlayer.resources.energy, 20);
-    updateResource('res-food', localPlayer.resources.food, 20);
-    updateResource('res-scrap', localPlayer.resources.scrap);
+    RESOURCE_TYPES.forEach(res => {
+        updateResource(res.domId, localPlayer.resources[res.key], res.threshold || 0);
+    });
     
     // Update System Counts by Participant
     const systemList = document.getElementById('system-list');

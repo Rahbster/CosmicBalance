@@ -19,8 +19,8 @@ export class MovementService {
                 if (!fleetSpeeds[ship.fleetId]) {
                     // Calculate and cache the fleet's speed
                     const fleetShips = this.engine.state.ships.filter(s => s.fleetId === ship.fleetId);
-                    const minWarp = Math.min(...fleetShips.map(s => s.warp));
-                    const minSublight = Math.min(...fleetShips.map(s => s.sublight));
+                    const minWarp = Math.min(...fleetShips.map(s => s.warp || 0));
+                    const minSublight = Math.min(...fleetShips.map(s => s.sublight || 0));
                     fleetSpeeds[ship.fleetId] = { warp: minWarp, sublight: minSublight };
                 }
                 warpSpeed = fleetSpeeds[ship.fleetId].warp;
@@ -43,7 +43,8 @@ export class MovementService {
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
                 const effectiveRadius = system ? this.engine.getSystemEffectiveRadius(system) : 10;
-                const arrivalRadius = system ? Math.min(effectiveRadius - 5, system.r + 50) : 10;
+                // Increased buffer to 15 to ensure we are well inside the system radius
+                const arrivalRadius = system ? Math.min(effectiveRadius - 15, system.r + 50) : 10;
 
                 if (dist > arrivalRadius) { // If ship is in transit                        
                     if (ship.isDeparting) {
@@ -169,8 +170,19 @@ export class MovementService {
             const dy = ship.arrivalPoint.y - ship.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 1) {
-                const moveSpeed = sublightSpeed * SUBLIGHT_SPEED_FACTOR;
+            // Increased snap distance to 5 to prevent micro-stuttering at end of travel
+            if (dist > 5) {
+                const moveSpeed = (sublightSpeed || 0) * SUBLIGHT_SPEED_FACTOR;
+                
+                // Safety check: if speed is 0, we will never arrive. Force arrival.
+                if (moveSpeed <= 0) {
+                    console.warn(`[MovementService] Ship ${ship.id} stuck with 0 sublight speed. Forcing arrival.`);
+                    ship.moveState = 'IDLE';
+                    delete ship.arrivalPoint;
+                    this.engine.getCurrentSystem(ship);
+                    return;
+                }
+
                 const moveDistance = moveSpeed * (dt / 1000);
                 const travelDistance = Math.min(moveDistance, dist);
 
@@ -254,7 +266,9 @@ export class MovementService {
             const targetSystem = this.engine.state.systems.find(s => s.id === targetId);
             if (targetSystem) {
                 const angle = Math.random() * 2 * Math.PI;
-                const distance = Math.random() * this.engine.getSystemEffectiveRadius(targetSystem) * 0.5; // Arrive somewhere in the inner 50%
+                const effRadius = this.engine.getSystemEffectiveRadius(targetSystem);
+                const safeRadius = effRadius > 0 ? effRadius : 50;
+                const distance = Math.random() * safeRadius * 0.5; // Arrive somewhere in the inner 50%
                 ship.arrivalPoint = {
                     x: targetSystem.x + Math.cos(angle) * distance,
                     y: targetSystem.y + Math.sin(angle) * distance
