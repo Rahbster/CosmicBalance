@@ -166,3 +166,22 @@ export const LOG_CATEGORIES = {
     AI: 'AI',
     NETWORK: 'NETWORK'
 };
+
+export const FACTION_COLORS = [
+    '#00A0C0', // Cyan
+    '#CC3333', // Red
+    '#33CC33', // Green
+    '#EFB82A', // Yellow
+    '#9400D3', // Purple
+    '#FF8C00', // Orange
+    '#FFFFFF', // White
+    '#FF69B4'  // Pink
+];
+
+export const RESOURCE_TYPES = [
+    { key: 'IO', domId: 'res-io', label: 'IO', icon: '🪙', cssClass: 'icon-io', title: 'Inter-system Organizational Credits' },
+    { key: 'minerals', domId: 'res-minerals', label: 'Minerals', icon: '💎', cssClass: 'icon-minerals', title: 'Minerals' },
+    { key: 'energy', domId: 'res-energy', label: 'Energy', icon: '⚡', cssClass: 'icon-energy', title: 'Energy', threshold: 20 },
+    { key: 'food', domId: 'res-food', label: 'Food', icon: '🌾', cssClass: 'icon-food', title: 'Food', threshold: 20 },
+    { key: 'scrap', domId: 'res-scrap', label: 'Scrap', icon: '⚙️', cssClass: 'icon-scrap', title: 'Scrap' }
+];

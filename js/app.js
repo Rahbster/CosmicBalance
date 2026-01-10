@@ -10,6 +10,7 @@ import { FleetManagerModal } from './modals/FleetManagerModal.js';
 import { RadialMenu } from './ui/RadialMenu.js';
 import { LoggingModal } from './modals/LoggingModal.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
+import { UIManager } from './ui/UIManager.js';
 
 // --- Theme Management ---
 function setTheme(theme) {
@@ -93,6 +94,8 @@ function saveTeam(team) {
     localStorage.setItem('pwa_team', team);
 }
 
+let gameEngine = null;
+let uiManager = new UIManager(null); // Initialize early for theme
 const peerManager = new PeerManager();
 let currentRemoteName = 'Peer';
 
@@ -103,7 +106,6 @@ const chatManager = new ChatManager({
     send: (data) => peerManager.send(data)
 }, getIdentity, getTeam);
 
-let gameEngine = null;
 let techTreeModal = null;
 let fleetManagerModal = null;
 let loggingModal = null;
@@ -341,6 +343,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Game Engine on load since it's the main view
     if (!gameEngine && gameCanvas) {
         gameEngine = new GameEngine(gameCanvas, peerManager, getIdentity, getTeam);
+        uiManager.gameEngine = gameEngine; // Link engine to UI manager
+        uiManager.colorPicker = document.getElementById('faction-color-picker'); // Re-bind element
         techTreeModal = new TechTreeModal(gameEngine, getTeam);
         fleetManagerModal = new FleetManagerModal(gameEngine);
         loggingModal = new LoggingModal(gameEngine);

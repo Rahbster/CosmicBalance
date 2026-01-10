@@ -106,7 +106,7 @@ export class InteractionService {
                     if (systemUnderneath) {
                         // We clicked the selected ship, but there's a system here.
                         // Treat this click as a click on the system.
-                        this.engine.setSelectedLocation(systemUnderneath.id);
+                        this.engine.selectionManager.setSelectedLocation(systemUnderneath.id);
                         return;
                     }
                 }
@@ -119,9 +119,9 @@ export class InteractionService {
                     if (isOwner || isGod) {
                         if (ship.isStation) {
                             // If it's a station, treat it as a location to show build menus etc.
-                            this.engine.setSelectedLocation(ship.id);
+                            this.engine.selectionManager.setSelectedLocation(ship.id);
                         } else {
-                            this.engine.setSelectedShip(ship.id);
+                            this.engine.selectionManager.setSelectedShip(ship.id);
                         }
                     }
                 } else if (closestEntity.type === 'system') {
@@ -137,7 +137,7 @@ export class InteractionService {
                     }
 
                     if (!moveSuccessful) {
-                        this.engine.setSelectedLocation(system.id);
+                        this.engine.selectionManager.setSelectedLocation(system.id);
                     }
                 } else if (closestEntity.type === 'debris') {
                     const debris = closestEntity.entity;
@@ -152,7 +152,7 @@ export class InteractionService {
 
             this.engine.isAnimating = false; // Stop any ongoing animation if user starts panning
             this.isPanning = true;
-            this.panStart = { x: this.engine.pan.x, y: this.engine.pan.y };
+            this.panStart = { x: this.engine.camera.pan.x, y: this.engine.camera.pan.y };
             this.mouseStart = { x: e.clientX, y: e.clientY };
             this.canvas.style.cursor = 'grabbing';
             this.engine.logDiagnostics('pan start', e, coords);
@@ -165,9 +165,9 @@ export class InteractionService {
                 const dx = e.clientX - this.mouseStart.x;
                 const dy = e.clientY - this.mouseStart.y;
                 if (Math.abs(dx) > 5 || Math.abs(dy) > 5) clearTimeout(this.pressTimer); // Cancel long press if panning
-                this.engine.pan.x = this.panStart.x + dx;
-                this.engine.pan.y = this.panStart.y + dy;
-                this.engine.constrainPanAndZoom();
+                this.engine.camera.pan.x = this.panStart.x + dx;
+                this.engine.camera.pan.y = this.panStart.y + dy;
+                this.engine.camera.constrainPanAndZoom();
             }
         });
 
@@ -185,8 +185,8 @@ export class InteractionService {
                 const dx = e.clientX - this.mouseStart.x;
                 const dy = e.clientY - this.mouseStart.y;
                 if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
-                    this.engine.setSelectedShip(null);
-                    this.engine.setSelectedLocation(null);
+                    this.engine.selectionManager.setSelectedShip(null);
+                    this.engine.selectionManager.setSelectedLocation(null);
                 }
 
                 this.isPanning = false;
@@ -210,25 +210,25 @@ export class InteractionService {
             clearTimeout(this.zoomEndTimeout);
 
             const zoomFactor = 1.1;
-            const oldZoom = this.engine.zoom;
+            const oldZoom = this.engine.camera.zoom;
 
             const pointBeforeZoom = {
-                x: (e.clientX - this.canvas.getBoundingClientRect().left - this.engine.pan.x) / oldZoom,
-                y: (e.clientY - this.canvas.getBoundingClientRect().top - this.engine.pan.y) / oldZoom
+                x: (e.clientX - this.canvas.getBoundingClientRect().left - this.engine.camera.pan.x) / oldZoom,
+                y: (e.clientY - this.canvas.getBoundingClientRect().top - this.engine.camera.pan.y) / oldZoom
             };
 
             if (e.deltaY < 0) {
-                this.engine.zoom *= zoomFactor;
+                this.engine.camera.zoom *= zoomFactor;
             } else {
-                this.engine.zoom /= zoomFactor;
+                this.engine.camera.zoom /= zoomFactor;
             }
 
-            this.engine.zoom = Math.max(0.1, Math.min(this.engine.zoom, 20));
+            this.engine.camera.zoom = Math.max(0.1, Math.min(this.engine.camera.zoom, 20));
 
-            this.engine.pan.x = (e.clientX - this.canvas.getBoundingClientRect().left) - pointBeforeZoom.x * this.engine.zoom;
-            this.engine.pan.y = (e.clientY - this.canvas.getBoundingClientRect().top) - pointBeforeZoom.y * this.engine.zoom;
+            this.engine.camera.pan.x = (e.clientX - this.canvas.getBoundingClientRect().left) - pointBeforeZoom.x * this.engine.camera.zoom;
+            this.engine.camera.pan.y = (e.clientY - this.canvas.getBoundingClientRect().top) - pointBeforeZoom.y * this.engine.camera.zoom;
 
-            this.engine.constrainPanAndZoom();
+            this.engine.camera.constrainPanAndZoom();
 
             this.zoomEndTimeout = setTimeout(() => {
                 this.isZooming = false;
@@ -244,8 +244,8 @@ export class InteractionService {
     getMousePos(e) {
         const rect = this.canvas.getBoundingClientRect();
         return {
-            x: (e.clientX - rect.left - this.engine.pan.x) / this.engine.zoom,
-            y: (e.clientY - rect.top - this.engine.pan.y) / this.engine.zoom
+            x: (e.clientX - rect.left - this.engine.camera.pan.x) / this.engine.camera.zoom,
+            y: (e.clientY - rect.top - this.engine.camera.pan.y) / this.engine.camera.zoom
         };
     }
 

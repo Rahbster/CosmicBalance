@@ -8,18 +8,10 @@ import { CombatService } from './services/CombatService.js';
 import { EconomyService } from './services/EconomyService.js';
 import { MovementService } from './services/MovementService.js';
 import { LoggingService } from './services/LoggingService.js';
-import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
+import { CameraManager } from './services/CameraManager.js';
+import { SelectionManager } from './services/SelectionManager.js';
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS } from './cb_constants.js';
 
-const FACTION_COLORS = [
-    '#00A0C0', // Cyan
-    '#CC3333', // Red
-    '#33CC33', // Green
-    '#EFB82A', // Yellow
-    '#9400D3', // Purple
-    '#FF8C00', // Orange
-    '#FFFFFF', // White
-    '#FF69B4'  // Pink
-];
 
 export class GameEngine {
     constructor(canvas, peerManager, getIdentity, getTeam) {
@@ -37,22 +29,17 @@ export class GameEngine {
             debrisFields: [],
         };
 
-        this.loggingService = new LoggingService(); // Now uses new class structure
-
         // Try to load state from localStorage
         const savedState = localStorage.getItem('cosmic_balance_gamestate');
         if (savedState) {
             this.state = JSON.parse(savedState);
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Loaded saved game state from localStorage.");
         } else {
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "No saved game state found. Initializing empty state.");
         }
 
-        if (this.state.systems.length > 0) {
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GameEngine] Initial State - ${this.state.systems.length} Systems, ${this.state.ships.length} Ships`);
-        }
-
+        this.loggingService = new LoggingService();
         this.galaxyService = new GalaxyService(this.canvas, this.loggingService);
+        this.camera = new CameraManager(this, this.canvas);
+        this.selectionManager = new SelectionManager(this);
         this.spriteService = new SpriteService(this.loggingService);
         this.renderService = new RenderService(this.canvas, this, this.spriteService);
         this.interactionService = new InteractionService(this.canvas, this);
@@ -62,33 +49,17 @@ export class GameEngine {
         this.economyService = new EconomyService(this);
         this.movementService = new MovementService(this);
         
-        this.selectedShipId = null;
-        this.selectedLocationId = null;
         this.lastTime = 0;
         this.uiUpdateTimer = 0;
         this.uiUpdateInterval = 500; // Update UI twice a second
         this.saveStateTimer = 0;
         this.saveStateInterval = 5000; // Save state every 5 seconds
         
-        // Pan and Zoom state
-        this.pan = { x: 0, y: 0 };
-        this.zoom = 1;
-
-        // Animation state
-        this.isAnimating = false;
-        this.animationStartTime = 0;
-        this.animationDuration = 700; // ms
-        this.panStart = { x: 0, y: 0 };
-        this.panEnd = { x: 0, y: 0 };
-        this.zoomStart = 1;
-        this.zoomEnd = 1;
-
         // Host-specific view settings
         this.hostView = {
             mode: 'player', // 'player', 'god', or 'faction'
             faction: this.getTeam() // The faction to view as, defaults to own team
         };
-        this.isSelectionPanelOpen = false; // Default to hidden to prevent obstruction
     }
 
     _isShipInSystem(ship, system) {
@@ -223,13 +194,20 @@ export class GameEngine {
         this.economyService.requestRepairShip(shipId);
     }
 
+    // Proxy to SelectionManager for group repair logic
     requestRepairShipGroup(shipType, serviceType) {
+        // Logic moved to SelectionManager or kept here? 
+        // Actually, this is game logic triggered by UI. Let's keep it here but use selectionManager state.
+        // ... (Implementation remains similar but accesses selectionManager.selectedLocationId)
+        // For brevity, assuming SelectionManager handles the UI part, but the Engine handles the request.
+        // We need to update the implementation to use this.selectionManager.selectedLocationId
         const localPlayer = this.getLocalPlayer();
-        if (!this.selectedLocationId || !localPlayer) return;
+        const selectedId = this.selectionManager.selectedLocationId;
+        if (!selectedId || !localPlayer) return;
 
-        let location = this.state.systems.find(s => s.id === this.selectedLocationId);
+        let location = this.state.systems.find(s => s.id === selectedId);
         if (!location) {
-            location = this.state.ships.find(s => s.id === this.selectedLocationId && s.isStation);
+            location = this.state.ships.find(s => s.id === selectedId && s.isStation);
         }
         if (!location) return;
 
@@ -269,10 +247,10 @@ export class GameEngine {
         this.state = newState;
         this.isHost = false; // Clients receiving state are not the host
         // When a new state is set, we might need to reset some local things
-        this.selectedLocationId = null;
-        this.pan = { x: 0, y: 0 };
-        this.zoom = 1;
-        this.selectedShipId = null;
+        this.selectionManager.selectedLocationId = null;
+        this.selectionManager.selectedShipId = null;
+        this.camera.pan = { x: 0, y: 0 };
+        this.camera.zoom = 1;
     }
 
     getLocalPlayer() {
@@ -360,7 +338,7 @@ export class GameEngine {
         const localPlayer = this.getLocalPlayer();
         const homeSystem = this.state.systems.find(s => s.owner === localPlayer.id);
         if (homeSystem) {
-            this.centerOn(homeSystem.x, homeSystem.y, 1);
+            this.camera.centerOn(homeSystem.x, homeSystem.y, 1);
         }
 
         return this.state;
@@ -547,17 +525,17 @@ export class GameEngine {
         }
 
         this.update(dt);
-        this.updateAnimation(timestamp);
+        this.camera.updateAnimation(timestamp);
         this.draw();
 
         // Throttle UI updates to avoid constant re-rendering, but still update timers
         this.uiUpdateTimer += dt;
         if (this.uiUpdateTimer >= this.uiUpdateInterval) {
             this.uiUpdateTimer = 0;
-            if (this.selectedLocationId || this.selectedShipId) {
-                this._renderSelectedUI();
+            if (this.selectionManager.selectedLocationId || this.selectionManager.selectedShipId) {
+                this.selectionManager.renderSelectedUI();
             }
-            this._renderTechTreeProgress();
+            this.selectionManager.renderTechTreeProgress();
         }
 
         // Throttle saving the game state
@@ -568,27 +546,6 @@ export class GameEngine {
         }
         
         requestAnimationFrame((t) => this.loop(t));
-    }
-
-    updateAnimation(timestamp) {
-        if (!this.isAnimating) return;
-
-        const elapsed = timestamp - this.animationStartTime;
-        let progress = Math.min(elapsed / this.animationDuration, 1);
-
-        // Ease-out function for a smoother stop
-        progress = 1 - Math.pow(1 - progress, 3);
-
-        // Interpolate pan and zoom
-        this.pan.x = this.panStart.x + (this.panEnd.x - this.panStart.x) * progress;
-        this.pan.y = this.panStart.y + (this.panEnd.y - this.panStart.y) * progress;
-        this.zoom = this.zoomStart + (this.zoomEnd - this.zoomStart) * progress;
-
-        if (progress >= 1) {
-            this.isAnimating = false;
-            // Apply constraints only at the end of the animation
-            this.constrainPanAndZoom();
-        }
     }
 
     runHostLogic(dt) {
@@ -633,56 +590,6 @@ export class GameEngine {
         // console.log(`Transformed World Coords: { x: ${x.toFixed(2)}, y: ${y.toFixed(2)} }`);
         // console.groupEnd();
         // console.groupEnd();
-    }
-
-    constrainPanAndZoom() {
-        const allSystems = this.state.systems;
-        if (allSystems.length === 0) return;
-
-        const padding = 100;
-        // Use effective radius for a more accurate bounding box
-        const minX = Math.min(...allSystems.map(s => s.x - this.getSystemEffectiveRadius(s))) - padding;
-        const maxX = Math.max(...allSystems.map(s => s.x + this.getSystemEffectiveRadius(s))) + padding;
-        const minY = Math.min(...allSystems.map(s => s.y - this.getSystemEffectiveRadius(s))) - padding;
-        const maxY = Math.max(...allSystems.map(s => s.y + this.getSystemEffectiveRadius(s))) + padding;
-
-        const contentWidth = maxX - minX;
-        const contentHeight = maxY - minY;
-
-        const minZoomX = this.canvas.width / contentWidth;
-        const minZoomY = this.canvas.height / contentHeight;
-        const minZoom = Math.min(minZoomX, minZoomY, 1);
-        this.zoom = Math.max(this.zoom, minZoom);
-
-        const constrained = this._getConstrainedPan(this.pan, this.zoom);
-        this.pan.x = constrained.x;
-        this.pan.y = constrained.y;
-    }
-
-    _getConstrainedPan(pan, zoom) {
-        const allSystems = this.state.systems;
-        if (allSystems.length === 0) return pan;
-
-        const padding = 100;
-        const minX = Math.min(...allSystems.map(s => s.x - this.getSystemEffectiveRadius(s))) - padding;
-        const maxX = Math.max(...allSystems.map(s => s.x + this.getSystemEffectiveRadius(s))) + padding;
-        const minY = Math.min(...allSystems.map(s => s.y - this.getSystemEffectiveRadius(s))) - padding;
-        const maxY = Math.max(...allSystems.map(s => s.y + this.getSystemEffectiveRadius(s))) + padding;
-
-        // Calculate the two potential boundary points for the pan.
-        const boundX1 = this.canvas.width - (maxX * zoom);
-        const boundX2 = -(minX * zoom);
-        const boundY1 = this.canvas.height - (maxY * zoom);
-        const boundY2 = -(minY * zoom);
-
-        const newPan = { x: pan.x, y: pan.y };
-
-        // The valid range is always between the min and max of the two bounds.
-        // This standard clamp function works regardless of which bound is smaller.
-        newPan.x = Math.max(Math.min(boundX1, boundX2), Math.min(pan.x, Math.max(boundX1, boundX2)));
-        newPan.y = Math.max(Math.min(boundY1, boundY2), Math.min(pan.y, Math.max(boundY1, boundY2)));
-
-        return newPan;
     }
 
     moveShip(shipId, targetId) {
@@ -749,9 +656,9 @@ export class GameEngine {
             }
         } else if (data.type === 'GAME_SHIPS_DESTROYED') {
             this.state.ships = this.state.ships.filter(s => !data.shipIds.includes(s.id));
-            if (this.selectedShipId && data.shipIds.includes(this.selectedShipId)) {
-                this.selectedShipId = null;
-                this._renderSelectedUI(); // Immediately hide the panel
+            if (this.selectionManager.selectedShipId && data.shipIds.includes(this.selectionManager.selectedShipId)) {
+                this.selectionManager.selectedShipId = null;
+                this.selectionManager.renderSelectedUI(); // Immediately hide the panel
             }
         } else if (data.type === 'GAME_DEBRIS_CREATED') {
             this.state.debrisFields.push(data.debris);
@@ -778,14 +685,14 @@ export class GameEngine {
             if (!location) location = this.state.ships.find(s => s.id === data.locationId);
             if (location) {
                 location.buildQueue = data.queue;
-                if (this.selectedLocationId === location.id) this._renderSelectedLocationUI();
+                if (this.selectionManager.selectedLocationId === location.id) this.selectionManager.renderSelectedUI();
             }
         } else if (data.type === 'GAME_SCOUT_REPORT') {
             const system = this.state.systems.find(sys => sys.id === data.systemId);
             if (system && data.team === this.getTeam()) {
                 system.scoutReport = data;
                 // Re-render UI if this planet is selected
-                if (this.selectedLocationId === system.id) this.renderService.drawSelectedLocationUI();
+                if (this.selectionManager.selectedLocationId === system.id) this.selectionManager.renderSelectedUI();
             }
         } else if (data.type === 'GAME_REQUEST_RESEARCH') {
             this.economyService.handleResearchRequest(data);
@@ -829,7 +736,7 @@ export class GameEngine {
             const planet = this.state.systems.find(p => p.id === data.locationId);
             if (planet) {
                 planet.buildQueue = data.queue;
-                if (this.selectedLocationId === planet.id) this.drawSelectedLocationUI();
+                if (this.selectionManager.selectedLocationId === planet.id) this.selectionManager.renderSelectedUI();
             }
         } else if (data.type === 'GAME_PLANET_UPDATE') {
             for (const system of this.state.systems) {

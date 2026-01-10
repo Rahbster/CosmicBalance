@@ -12,8 +12,8 @@ export class RenderService {
     draw() {
         const ctx = this.ctx;
         const state = this.gameEngine.state;
-        const pan = this.gameEngine.pan;
-        const zoom = this.gameEngine.zoom;
+        const pan = this.gameEngine.camera.pan;
+        const zoom = this.gameEngine.camera.zoom;
 
         // Clear background
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -151,8 +151,8 @@ export class RenderService {
                 ctx.lineTo(targetSystem.x, targetSystem.y);
                 
                 ctx.strokeStyle = player.color || '#FFFFFF';
-                ctx.lineWidth = 2 / this.gameEngine.zoom; // Thicker line for fleets
-                ctx.setLineDash([8 / this.gameEngine.zoom, 6 / this.gameEngine.zoom]);
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Thicker line for fleets
+                ctx.setLineDash([8 / this.gameEngine.camera.zoom, 6 / this.gameEngine.camera.zoom]);
                 ctx.globalAlpha = 0.7;
                 
                 ctx.stroke();
@@ -176,8 +176,8 @@ export class RenderService {
             ctx.lineTo(targetSystem.x, targetSystem.y);
 
             ctx.strokeStyle = ship.color || '#FFFFFF';
-            ctx.lineWidth = 1 / this.gameEngine.zoom;
-            ctx.setLineDash([4 / this.gameEngine.zoom, 4 / this.gameEngine.zoom]);
+            ctx.lineWidth = 1 / this.gameEngine.camera.zoom;
+            ctx.setLineDash([4 / this.gameEngine.camera.zoom, 4 / this.gameEngine.camera.zoom]);
             ctx.globalAlpha = 0.5;
 
             ctx.stroke();
@@ -244,7 +244,7 @@ export class RenderService {
 
         // Draw System Name
         const baseFontSize = 12;
-        const finalFontSize = Math.max(baseFontSize, 8 / this.gameEngine.zoom); // Ensure a minimum readable size on screen
+        const finalFontSize = Math.max(baseFontSize, 8 / this.gameEngine.camera.zoom); // Ensure a minimum readable size on screen
         ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
         ctx.font = `${finalFontSize}px Orbitron, sans-serif`;
         ctx.textAlign = 'center';
@@ -256,7 +256,7 @@ export class RenderService {
             if (owner) {
                 const textWidth = ctx.measureText(system.name).width;
                 const scale = finalFontSize / 24; // Scale flag to match text height
-                const flagX = system.x + (textWidth / 2) + (6 / this.gameEngine.zoom);
+                const flagX = system.x + (textWidth / 2) + (6 / this.gameEngine.camera.zoom);
                 const flagY = system.y - r - 10 - finalFontSize + (2 * scale); // Align with text top roughly
                 this.drawFlag(ctx, flagX, flagY, owner.color, scale);
             }
@@ -267,7 +267,7 @@ export class RenderService {
             const ownerPlayer = this.gameEngine.state.players.find(p => p.id === system.owner);
             const ownerColor = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
             ctx.strokeStyle = ownerColor;
-            ctx.lineWidth = 3 / this.gameEngine.zoom; // Keep line width constant on screen
+            ctx.lineWidth = 3 / this.gameEngine.camera.zoom; // Keep line width constant on screen
             ctx.beginPath();
             ctx.arc(system.x, system.y, r + 5, 0, Math.PI * 2); // A ring just outside the star's glow
             ctx.stroke();
@@ -305,7 +305,7 @@ export class RenderService {
     drawPlanetMini(ctx, planet, x, y, r) {
         // Ensure planets have a minimum visible size when zoomed out
         const minPixelRadius = 1.5;
-        const finalRadius = Math.max(r, minPixelRadius / this.gameEngine.zoom);
+        const finalRadius = Math.max(r, minPixelRadius / this.gameEngine.camera.zoom);
         const typeInfo = PLANET_TYPES[planet.type];
         ctx.fillStyle = typeInfo ? typeInfo.color : '#888';
         
@@ -316,9 +316,9 @@ export class RenderService {
         if (planet.owner) {
             const ownerPlayer = this.gameEngine.state.players.find(p => p.id === planet.owner);
             ctx.strokeStyle = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
-            ctx.lineWidth = 2 / this.gameEngine.zoom; // Make it visible like the capture ring
+            ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Make it visible like the capture ring
             ctx.beginPath();
-            ctx.arc(x, y, finalRadius + (3 / this.gameEngine.zoom), 0, Math.PI * 2);
+            ctx.arc(x, y, finalRadius + (3 / this.gameEngine.camera.zoom), 0, Math.PI * 2);
             ctx.stroke();
         }
 
@@ -327,11 +327,11 @@ export class RenderService {
             const capturingPlayer = this.gameEngine.state.players.find(p => p.id === planet.capturingTeam);
             if (capturingPlayer) {
                 ctx.strokeStyle = capturingPlayer.color;
-                ctx.lineWidth = 2 / this.gameEngine.zoom; // Keep it visible
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Keep it visible
                 ctx.beginPath();
                 // Draw a partial arc based on capture progress, starting from the top
                 const endAngle = (planet.captureProgress / 100) * Math.PI * 2 - (Math.PI / 2);
-                ctx.arc(x, y, finalRadius + (3 / this.gameEngine.zoom), -Math.PI / 2, endAngle);
+                ctx.arc(x, y, finalRadius + (3 / this.gameEngine.camera.zoom), -Math.PI / 2, endAngle);
                 ctx.stroke();
             }
         }
@@ -411,7 +411,7 @@ export class RenderService {
 
         // Repair/Upgrade Indicator
         if (ship.isRepairing) {
-            const iconSize = 14 / this.gameEngine.zoom;
+            const iconSize = 14 / this.gameEngine.camera.zoom;
             ctx.font = `${iconSize}px sans-serif`;
             ctx.fillStyle = '#FFD700';
             ctx.textAlign = 'center';
@@ -528,7 +528,7 @@ export class RenderService {
         // Repair/Upgrade Indicator
         if (ship.isRepairing) {
             // Make icon size consistent regardless of zoom
-            const iconSize = 14 / this.gameEngine.zoom;
+            const iconSize = 14 / this.gameEngine.camera.zoom;
             ctx.font = `${iconSize}px sans-serif`;
             ctx.fillStyle = '#FFD700'; // Gold color for the wrench
             ctx.textAlign = 'center';
@@ -540,17 +540,17 @@ export class RenderService {
     }
 
     drawSelection(ctx) {
-        const selLocId = this.gameEngine.selectedLocationId;
-        const selShipId = this.gameEngine.selectedShipId;
+        const selLocId = this.gameEngine.selectionManager.selectedLocationId;
+        const selShipId = this.gameEngine.selectionManager.selectedShipId;
         const state = this.gameEngine.state;
 
         if (selLocId) {
             const sys = state.systems.find(s => s.id === selLocId);
             if (sys) {
                 // Make padding and line width constant in screen space by dividing by zoom
-                const selectionPadding = 8 / this.gameEngine.zoom;
+                const selectionPadding = 8 / this.gameEngine.camera.zoom;
                 ctx.strokeStyle = '#00FF00';
-                ctx.lineWidth = 2 / this.gameEngine.zoom;
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
                 ctx.beginPath();
                 ctx.arc(sys.x, sys.y, sys.r + selectionPadding, 0, Math.PI * 2);
                 ctx.stroke();
@@ -561,9 +561,9 @@ export class RenderService {
             const ship = state.ships.find(s => s.id === selShipId);
             if (ship) {
                 // Make selection radius and line width constant in screen space
-                const selectionRadius = 12 / this.gameEngine.zoom;
+                const selectionRadius = 12 / this.gameEngine.camera.zoom;
                 ctx.strokeStyle = '#00FF00';
-                ctx.lineWidth = 2 / this.gameEngine.zoom;
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
                 ctx.beginPath();
                 ctx.arc(ship.x, ship.y, selectionRadius, 0, Math.PI * 2);
                 ctx.stroke();
@@ -573,7 +573,7 @@ export class RenderService {
 
     drawSelectedLocationUI() {
         // This method is called by GameEngine to update the DOM UI based on selection
-        // Implementation logic is handled in GameEngine or a separate UI manager in a full framework,
+        // Implementation logic is handled in SelectionManager or a separate UI manager in a full framework,
         // but here we can trigger a custom event or update the DOM directly if needed.
         // For now, we'll rely on the GameEngine's existing logic or the RenderService logic if moved here.
         // (See implementation in previous thought block for full DOM update logic if required)
