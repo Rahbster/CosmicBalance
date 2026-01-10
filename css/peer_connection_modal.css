@@ -1,0 +1,302 @@
+/* Peer Connection Modal Styles */
+#peer-modal, #peer-info-modal {
+    display: block;
+    position: fixed;
+    z-index: 2000; /* High z-index to sit on top */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+}
+
+#peer-modal.hidden, #peer-info-modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background-color: #fff;
+    margin: 5% auto;
+    padding: 25px;
+    border: 1px solid #888;
+    width: 90%;
+    max-width: 450px;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    position: relative;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.close-modal {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.close-modal:hover {
+    color: #333;
+}
+
+.info-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    margin-left: 8px;
+}
+
+.peer-controls {
+    margin-top: 20px;
+}
+
+.role-selector {
+    display: flex;
+    background: #f0f2f5;
+    padding: 4px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.role-btn {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.role-btn.selected {
+    background: #fff;
+    color: #007bff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.step-box {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    border: 1px solid #e9ecef;
+    margin-bottom: 15px;
+}
+
+.step-box h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.code-display {
+    font-family: 'Courier New', monospace;
+    font-size: 2.5rem;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #333;
+    background: #fff;
+    padding: 15px;
+    border-radius: 8px;
+    border: 2px dashed #cbd5e0;
+    margin: 15px 0;
+    user-select: all;
+}
+
+.sdp-box {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.sdp-box:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+button#btn-host-session {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    width: 100%;
+}
+
+button#btn-host-session:hover {
+    background-color: #0056b3;
+}
+
+.peer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    transition: transform 0.1s;
+}
+
+.peer-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.peer-name {
+    font-weight: 600;
+    color: #333;
+}
+
+.host-user-btn, .join-user-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.host-user-btn {
+    background-color: #e3f2fd;
+    color: #0d47a1;
+}
+
+.join-user-btn {
+    background-color: #e8f5e9;
+    color: #1b5e20;
+}
+
+.remove-peer-btn {
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 0 8px;
+    line-height: 1;
+}
+
+.remove-peer-btn:hover {
+    color: #dc3545;
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .modal-content {
+        background-color: #1a1a1a;
+        border-color: #333;
+        color: #e0e0e0;
+    }
+    
+    .close-modal { color: #888; }
+    .close-modal:hover { color: #fff; }
+    
+    .role-selector { background: #2d2d2d; }
+    .role-btn { color: #aaa; }
+    .role-btn.selected { background: #404040; color: #fff; }
+    
+    .step-box {
+        background: #252525;
+        border-color: #333;
+    }
+    
+    .step-box h4 { color: #fff; }
+    
+    .code-display {
+        background: #1a1a1a;
+        border-color: #444;
+        color: #fff;
+    }
+    
+    .sdp-box {
+        background: #1a1a1a;
+        border-color: #444;
+        color: #fff;
+    }
+    
+    .peer-item {
+        background: #252525;
+        border-color: #333;
+    }
+    
+    .peer-name { color: #fff; }
+    
+    .host-user-btn { background-color: #1565c0; color: #fff; }
+    .join-user-btn { background-color: #2e7d32; color: #fff; }
+}
+
+/* Manual Dark Mode Support */
+body[data-theme="dark"] .modal-content {
+    background-color: #1a1a1a;
+    border-color: #333;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .close-modal { color: #888; }
+body[data-theme="dark"] .close-modal:hover { color: #fff; }
+
+body[data-theme="dark"] .role-selector { background: #2d2d2d; }
+body[data-theme="dark"] .role-btn { color: #aaa; }
+body[data-theme="dark"] .role-btn.selected { background: #404040; color: #fff; }
+
+body[data-theme="dark"] .step-box {
+    background: #252525;
+    border-color: #333;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .step-box h4 { color: #fff; }
+
+body[data-theme="dark"] .code-display {
+    background: #1a1a1a;
+    border-color: #444;
+    color: #fff;
+}
+
+body[data-theme="dark"] .sdp-box {
+    background: #1a1a1a;
+    border-color: #444;
+    color: #fff;
+}
+
+body[data-theme="dark"] .peer-item {
+    background: #252525;
+    border-color: #333;
+}
+
+body[data-theme="dark"] .peer-name { color: #fff; }
+
+body[data-theme="dark"] .host-user-btn { background-color: #1565c0; color: #fff; }
+body[data-theme="dark"] .join-user-btn { background-color: #2e7d32; color: #fff; }
+
+/* Badge Styles */
+.badge {
+    background-color: #dc3545;
+    color: white;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    margin-left: 8px;
+    font-weight: bold;
+    vertical-align: middle;
+}
+.badge.hidden {
+    display: none;
+}

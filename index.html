@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cosmic Balance</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/peer.css">
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then(registration => {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                }, err => {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+    </script>
+</head>
+<body>
+    <div id="app">
+        <!-- Top Navigation / Header -->
+        <header class="app-header">
+            <button id="hamburger-btn" aria-label="Open Menu">☰</button>
+            <h1>Cosmic Balance</h1>
+        </header>
+
+        <!-- Side Navigation Panel -->
+        <div id="sidenav" class="sidenav">
+            <a href="javascript:void(0)" class="closebtn" id="close-sidenav-btn">&times;</a>
+            <h2>Settings</h2>
+            <div class="sidenav-item">
+                <button id="btn-open-peer-modal" style="width: 100%;">Connect to Peer</button>
+                <button id="btn-open-game-setup-modal" style="width: 100%; margin-top: 0.5rem;">Game Setup</button>
+                <button id="btn-open-chat" style="width: 100%; margin-top: 0.5rem;" disabled>
+                    Quick Chat <span id="chat-badge" class="badge hidden">0</span>
+                </button>
+            </div>
+            <hr style="margin: 0.5rem 2rem; border: 0; border-top: 1px solid var(--border-color);">
+            <div class="sidenav-item">
+                <label for="settings-name">Display Name:</label>
+                <input type="text" id="settings-name" placeholder="Enter your name">
+            </div>
+            <div class="sidenav-item">
+                <span>Theme</span>
+                <button id="theme-toggle" aria-label="Toggle Theme">🌓</button>
+            </div>
+            <div class="sidenav-item">
+                <label for="faction-name-input">Faction Name:</label>
+                <input type="text" id="faction-name-input" placeholder="Enter faction name">
+            </div>
+            <div class="sidenav-item">
+                <label for="team-select">Tech Base:</label>
+                <select id="team-select" style="width: 100%; padding: 0.5rem;">
+                    <option value="UNSC">UNSC</option>
+                    <option value="COVENANT">Covenant</option>
+                </select>
+            </div>
+            <div class="sidenav-item">
+                <label>Faction Color:</label>
+                <div id="faction-color-picker" class="color-picker">
+                    <!-- Color swatches will be injected here by JS -->
+                </div>
+            </div>
+            <div id="host-view-controls" class="sidenav-item hidden">
+                <h4>Host View</h4>
+                <select id="host-view-select">
+                    <option value="player" selected>Player View</option>
+                    <option value="god">God View (See All)</option>
+                    <option value="faction">Faction View</option>
+                </select>
+                <select id="host-faction-select" class="hidden" style="margin-top: 0.5rem;"></select>
+            </div>
+        </div>
+        <div id="overlay" class="overlay"></div>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            <section id="view-settings" class="view hidden">
+                <h2>Settings</h2>
+                <p>Application configuration.</p>
+            </section>
+
+            <section id="view-game" class="view active">
+                <div id="resource-display" class="resource-display">
+                    <span title="Inter-system Organizational Credits">
+                        <span class="res-label">IO</span>
+                        <span class="res-value-group">
+                            <strong id="res-io">0</strong>
+                            <i class="icon-io">🪙</i>
+                        </span>
+                    </span>
+                    <span title="Minerals">
+                        <span class="res-label">Minerals</span>
+                        <span class="res-value-group">
+                            <strong id="res-minerals">0</strong>
+                            <i class="icon-minerals">💎</i>
+                        </span>
+                    </span>
+                    <span title="Energy">
+                        <span class="res-label">Energy</span>
+                        <span class="res-value-group">
+                            <strong id="res-energy">0</strong>
+                            <i class="icon-energy">⚡</i>
+                        </span>
+                    </span>
+                    <span title="Food">
+                        <span class="res-label">Food</span>
+                        <span class="res-value-group">
+                            <strong id="res-food">0</strong>
+                            <i class="icon-food">🌾</i>
+                        </span>
+                    </span>
+                    <span title="Scrap">
+                        <span class="res-label">Scrap</span>
+                        <span class="res-value-group">
+                            <strong id="res-scrap">0</strong>
+                            <i class="icon-scrap">⚙️</i>
+                        </span>
+                    </span>
+                    <hr style="width: 100%; border: 0; border-top: 1px solid rgba(0, 242, 255, 0.3); margin: 5px 0;">
+                    <!-- System counts by participant will be injected here -->
+                    <div id="system-list" style="display: flex; flex-direction: column; width: 100%;"></div>
+                </div>
+                <div id="selected-planet-info" class="hidden" style="background: var(--surface-color); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border-color);">
+                    <!-- Selected planet info will be rendered here by game-engine.js -->
+                </div>
+                <canvas id="game-canvas" style="width: 100%; height: 600px; border: 1px solid var(--border-color); border-radius: 8px;"></canvas>
+            </section>
+        </main>
+
+        <!-- Chat Modal -->
+        <div id="chat-modal" class="modal hidden">
+            <div class="modal-content">
+                <span id="close-chat-modal" class="close-modal">&times;</span>
+                <h2>Quick Chat</h2>
+                <div id="peer-chat">
+                    <div id="messages"></div>
+                    <div class="chat-input-area">
+                        <select id="chat-scope" style="width: 80px; padding: 0.5rem;">
+                            <option value="GLOBAL">Global</option>
+                            <option value="TEAM">Team</option>
+                        </select>
+                        <input type="text" id="msg-input" placeholder="Type a message...">
+                        <button id="btn-send">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scout Report Modal -->
+        <div id="scout-report-modal" class="modal hidden">
+            <div class="modal-content">
+                <span id="close-scout-report-modal" class="close-modal">&times;</span>
+                <h2>Scout Report</h2>
+                <div id="scout-report-content">
+                    <!-- Scout report details will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/modals/FleetManagerModal.js"></script>
+    <script type="module" src="js/modals/TechTreeModal.js"></script>
+    <script src="./js/peerjs.min.js"></script>
+</body>
+</html>

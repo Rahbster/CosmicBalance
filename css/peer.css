@@ -1,0 +1,248 @@
+.sdp-box {
+    width: 100%;
+    padding: 0.5rem;
+    font-family: monospace;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+.step-box {
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 4px;
+    background: var(--surface-color);
+}
+#view-peer {
+    padding: 1rem;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.peer-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Role Selector Styles */
+.role-selector {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    justify-content: center;
+}
+
+.role-btn {
+    padding: 0.5rem 2rem;
+    border: 1px solid var(--primary-color);
+    background: var(--surface-color);
+    color: var(--primary-color);
+    cursor: pointer;
+    border-radius: 4px;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+
+.role-btn:hover {
+    background: var(--bg-color);
+}
+
+.role-btn.selected {
+    background: var(--primary-color);
+    color: white;
+}
+
+.role-panel {
+    animation: fadeIn 0.3s ease-in;
+    text-align: center;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Existing Styles */
+.join-container {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    justify-content: center;
+}
+
+#join-code {
+    padding: 0.75rem;
+    font-size: 1.2rem;
+    width: 10rem;
+    text-align: center;
+    letter-spacing: 2px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.code-display {
+    font-size: 2.5rem;
+    font-weight: bold;
+    letter-spacing: 8px;
+    background: var(--bg-color);
+    padding: 1rem;
+    text-align: center;
+    border: 2px dashed var(--primary-color);
+    border-radius: 8px;
+    margin: 1rem 0;
+    user-select: all;
+    color: var(--text-color);
+}
+
+#messages {
+    height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: var(--bg-color);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.message-wrapper {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+}
+
+.message-wrapper.local {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.message-wrapper.remote {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+
+.message-name {
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+    color: var(--text-color);
+    opacity: 0.7;
+    padding: 0 0.5rem;
+}
+
+.message {
+    padding: 0.5rem 1rem;
+    border-radius: 1rem;
+    word-wrap: break-word;
+    width: fit-content;
+}
+
+.message.local {
+    background: var(--primary-color);
+    color: white;
+    border-bottom-right-radius: 0.25rem;
+}
+
+.message.remote {
+    background: var(--surface-color);
+    color: var(--text-color);
+    border-bottom-left-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+}
+
+.hidden {
+    display: none !important;
+}
+
+.chat-input-area {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#peer-chat input {
+    flex-grow: 1;
+    padding: 0.5rem;
+}
+
+.peer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.peer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    transition: box-shadow 0.2s;
+}
+
+.peer-item:hover {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+}
+
+.peer-name {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.peer-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.peer-item-actions button {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.host-user-btn, .join-user-btn {
+    padding: 0.3rem 0.8rem;
+    font-size: 0.9rem;
+}
+
+.remove-peer-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    opacity: 0.5;
+    font-size: 1.5rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.remove-peer-btn:hover {
+    color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.peer-item-actions button[disabled] span {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    border: 2px solid currentColor;
+    border-bottom-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
