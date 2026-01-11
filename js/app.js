@@ -2,6 +2,7 @@ import { PeerManager } from './peer.js';
 import { SignalingChannel } from './signaling-service.js';
 import { showPeerConnectionModal } from './modals/peer_connection_modal.js';
 import { showGameSetupModal } from './modals/GameSetupModal.js';
+import { showAboutModal } from './modals/AboutModal.js';
 import { ToastManager } from './ToastManager.js';
 import { ChatManager } from './ChatManager.js';
 import { GameEngine } from './game-engine.js';
@@ -193,6 +194,28 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hamburgerBtn) hamburgerBtn.addEventListener('click', openNav);
     if (closeSidenavBtn) closeSidenavBtn.addEventListener('click', closeNav);
     if (overlay) overlay.addEventListener('click', closeNav);
+
+    // Inject About Button into Sidenav
+    if (sidenav) {
+        const actionButtonsContainer = sidenav.querySelector('.sidenav-item');
+        if (actionButtonsContainer) {
+            const aboutBtn = document.createElement('button');
+            aboutBtn.textContent = "About";
+            aboutBtn.style.width = "100%";
+            aboutBtn.style.marginTop = "0.5rem";
+            aboutBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closeNav();
+                showAboutModal();
+            });
+            actionButtonsContainer.appendChild(aboutBtn);
+        }
+    }
+
+    // Show About on first load if no game state exists
+    if (!localStorage.getItem('cosmic_balance_gamestate')) {
+        showAboutModal();
+    }
 
     // Modal Logic
     const btnOpenPeerModal = document.getElementById('btn-open-peer-modal');
