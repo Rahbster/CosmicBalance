@@ -14,7 +14,7 @@ export class CombatService {
                 if (ship.scoutMission) return false; // Ships on a scout mission do not participate in or trigger combat
                 const dx = sys.x - ship.x;
                 const dy = sys.y - ship.y;
-                return (dx * dx + dy * dy) <= (this.engine.getSystemEffectiveRadius(sys) ** 2);
+                return (dx * dx + dy * dy) <= (this.engine.spatialService.getSystemEffectiveRadius(sys) ** 2);
             });
             if (orbitingShips.length > 0) {
                 shipsByPlanet.set(sys.id, orbitingShips);
@@ -57,7 +57,7 @@ export class CombatService {
                 this.engine.broadcast({ type: 'GAME_DEBRIS_CREATED', debris });
 
                 // Find the system name for the toast message
-                const system = this.engine.getClosestSystem(ship);
+                const system = this.engine.spatialService.getClosestSystem(ship);
                 const owner = this.engine.state.players.find(p => p.id === ship.owner);
                 if (owner && !owner.isAI) {
                     this.engine.broadcast({ 
@@ -85,7 +85,7 @@ export class CombatService {
         const DECAY_POINTS_PER_SECOND = 5;
 
         this.engine.state.systems.forEach(system => {
-            const effectiveRadius = this.engine.getSystemEffectiveRadius(system);
+            const effectiveRadius = this.engine.spatialService.getSystemEffectiveRadius(system);
             const orbitingTransports = this.engine.state.ships.filter(ship => {
                 if (ship.type !== 'TroopTransport') return false;
                 const dx = system.x - ship.x;
@@ -97,8 +97,17 @@ export class CombatService {
 
             if (ownersPresent.length === 1) {
                 const capturingOwnerId = ownersPresent[0];
+                const capturingPlayer = this.engine.state.players.find(p => p.id === capturingOwnerId);
+
                 // Find a planet within the system to capture
-                const targetPlanet = system.planets.find(p => p.owner !== capturingOwnerId);
+                const targetPlanet = system.planets.find(p => {
+                    if (p.owner === capturingOwnerId) return false;
+                    if (!p.owner) return true;
+                    
+                    const planetOwner = this.engine.state.players.find(pl => pl.id === p.owner);
+                    // Only allow capture if planet owner is on a different team
+                    return planetOwner && planetOwner.team !== capturingPlayer.team;
+                });
                 
                 if (targetPlanet) {
                     if (targetPlanet.capturingTeam && targetPlanet.capturingTeam !== capturingOwnerId) targetPlanet.captureProgress = 0; // Reset if different team was capturing

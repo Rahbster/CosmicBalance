@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cosmic-balance-v3';
+const CACHE_NAME = 'cosmic-balance-v4';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',

@@ -78,7 +78,7 @@ export class AIService {
     _manageResearch(aiPlayer, techData) {
         if (aiPlayer.researchQueue.length > 0) return;
 
-        const aiTechs = techData[aiPlayer.team];
+        const aiTechs = techData[aiPlayer.techBase];
         if (!aiTechs) return;
 
         const availableTechs = Object.keys(aiTechs).filter(techId => {
@@ -114,14 +114,14 @@ export class AIService {
     }
 
     _commandSalvager(aiPlayer, salvager) {
-        const currentSystem = this.engine.getCurrentSystem(salvager);
+        const currentSystem = this.engine.spatialService.getCurrentSystem(salvager);
 
         if (!currentSystem) {
             // It's in deep space, recover it.
-            console.warn(`[AIService] Salvager ${salvager.id} is idle in deep space at ${salvager.x},${salvager.y}`);
-            const closestSystem = this.engine.getClosestSystem(salvager);
+            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Salvager ${salvager.id} is idle in deep space at ${salvager.x},${salvager.y}`);
+            const closestSystem = this.engine.spatialService.getClosestSystem(salvager);
             if (closestSystem) {
-                console.log(`[AIService] Recovering lost salvager ${salvager.id} to nearest system ${closestSystem.id}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Recovering lost salvager ${salvager.id} to nearest system ${closestSystem.id}`);
                 this.engine.moveShip(salvager.id, closestSystem.id);
             }
             return;
@@ -130,50 +130,63 @@ export class AIService {
         const allDebrisFields = this.engine.state.debrisFields;
         if (!allDebrisFields || allDebrisFields.length === 0) return;
 
-        // Find systems AI has visibility of
-        const visibleSystemIds = this.engine.state.systems
-            .filter(s => s.visibility[aiPlayer.id] && s.visibility[aiPlayer.id] !== 'unexplored')
-            .map(s => s.id);
-        
-        // Find debris in or near visible systems
-        const reachableDebris = allDebrisFields.filter(debris => {
-            return this.engine.state.systems.some(sys => {
-                if (!visibleSystemIds.includes(sys.id)) return false;
-                const dx = sys.x - debris.x;
-                const dy = sys.y - debris.y;
-                // A generous radius around the system to find nearby debris
-                const searchRadius = this.engine.getSystemEffectiveRadius(sys) + 300; 
-                return (dx * dx + dy * dy) < (searchRadius * searchRadius);
+        let targetDebris = null;
+
+        // 1. Prioritize debris in the current system
+        const sysRadius = this.engine.spatialService.getSystemEffectiveRadius(currentSystem) + 200; // Buffer
+        const localDebris = allDebrisFields.filter(d => {
+            const dx = d.x - currentSystem.x;
+            const dy = d.y - currentSystem.y;
+            return (dx * dx + dy * dy) <= (sysRadius * sysRadius);
+        });
+
+        if (localDebris.length > 0) {
+            targetDebris = this._findClosest(salvager, localDebris);
+        }
+
+        // 2. If no local debris, look for debris in neighbor systems
+        if (!targetDebris) {
+            const neighborSystemIds = currentSystem.links.map(l => l.targetId);
+            // Filter debris that belongs to neighbor systems
+            const neighborDebris = allDebrisFields.filter(d => {
+                const dSys = this.engine.spatialService.getClosestSystem(d);
+                // Check if the debris's closest system is one of our neighbors AND we have explored it
+                return dSys && neighborSystemIds.includes(dSys.id) && 
+                       dSys.visibility[aiPlayer.id] && dSys.visibility[aiPlayer.id] !== 'unexplored';
             });
-        });
 
-        if (reachableDebris.length === 0) return;
-
-        let closestDebris = null;
-        let minDist = Infinity;
-
-        reachableDebris.forEach(debris => {
-            const dx = debris.x - salvager.x;
-            const dy = debris.y - salvager.y;
-            const dist = dx * dx + dy * dy;
-            if (dist < minDist) {
-                minDist = dist;
-                closestDebris = debris;
+            if (neighborDebris.length > 0) {
+                targetDebris = this._findClosest(salvager, neighborDebris);
             }
-        });
+        }
 
-        if (closestDebris) {
-            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${closestDebris.id}`);
+        if (targetDebris) {
+            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${targetDebris.id}`);
             this.engine.movementService.handleSalvageMissionRequest({
                 senderId: aiPlayer.id,
                 shipId: salvager.id,
-                targetDebrisId: closestDebris.id
+                targetDebrisId: targetDebris.id
             });
         }
     }
 
+    _findClosest(entity, items) {
+        let closest = null;
+        let minDist = Infinity;
+        items.forEach(item => {
+            const dx = item.x - entity.x;
+            const dy = item.y - entity.y;
+            const dist = dx * dx + dy * dy;
+            if (dist < minDist) {
+                minDist = dist;
+                closest = item;
+            }
+        });
+        return closest;
+    }
+
     _commandScout(aiPlayer, scout) {
-        const currentSystem = this.engine.getCurrentSystem(scout);
+        const currentSystem = this.engine.spatialService.getCurrentSystem(scout);
 
         if (currentSystem) {
             const neighbors = currentSystem.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
@@ -197,7 +210,7 @@ export class AIService {
             }
         } else {
             this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Scout ${scout.id} is idle in deep space at ${scout.x},${scout.y}`);
-            const closestSystem = this.engine.getClosestSystem(scout);
+            const closestSystem = this.engine.spatialService.getClosestSystem(scout);
             if (closestSystem) {
                 this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Recovering lost scout ${scout.id} to nearest system ${closestSystem.id}`);
                 this.engine.moveShip(scout.id, closestSystem.id);
@@ -210,7 +223,7 @@ export class AIService {
         
         const shipsBySystem = {};
         unassignedCombatShips.forEach(ship => {
-            const system = this.engine.getCurrentSystem(ship);
+            const system = this.engine.spatialService.getCurrentSystem(ship);
             if (system) {
                 if (!shipsBySystem[system.id]) shipsBySystem[system.id] = [];
                 shipsBySystem[system.id].push(ship);

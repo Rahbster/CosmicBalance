@@ -23,16 +23,33 @@ export class RenderService {
         ctx.scale(zoom, zoom);
 
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
-        const viewingPlayerId = this.gameEngine.getViewingPlayerId();
+        const viewingId = this.gameEngine.getViewingPlayerId();
+        
+        // Helper to check visibility based on viewing mode (Player ID or Faction Name)
+        const checkVisibility = (system) => {
+            if (isHostGodView) return 'explored';
+            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                // Check if ANY player in this faction has visibility
+                const factionPlayers = this.gameEngine.state.players.filter(p => p.team === viewingId);
+                const bestVis = factionPlayers.reduce((acc, p) => {
+                    const v = system.visibility[p.id];
+                    if (v === 'explored') return 'explored';
+                    if (v === 'scouted' && acc !== 'explored') return 'scouted';
+                    return acc;
+                }, 'unexplored');
+                return bestVis;
+            }
+            return system.visibility[viewingId];
+        };
 
         // 0. Draw Fog of War on top of the game world
-        this.drawFogOfWar(ctx, state, viewingPlayerId, isHostGodView);
+        this.drawFogOfWar(ctx, state, viewingId, isHostGodView, checkVisibility);
 
         // 1. Draw Links (Warp lanes)
-        this.drawLinks(ctx, state.systems, viewingPlayerId, isHostGodView);
+        this.drawLinks(ctx, state.systems, viewingId, isHostGodView, checkVisibility);
 
         // 2. Draw Systems (Stars and Planets)
-        state.systems.forEach(system => this.drawSystem(ctx, system));
+        state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
 
         // 3. Draw Debris
         state.debrisFields.forEach(debris => {
@@ -41,12 +58,11 @@ export class RenderService {
             } else {
                 // Check if debris is near any explored system
                 const isVisible = state.systems.some(sys => {
-                    const visibility = sys.visibility[viewingPlayerId];
+                    const visibility = checkVisibility(sys);
                     if (!visibility || visibility === 'unexplored') return false;
                     
                     const dx = sys.x - debris.x;
                     const dy = sys.y - debris.y;
-                    // Use a generous radius for visibility check (e.g. 200 units)
                     return (dx * dx + dy * dy) < (200 * 200);
                 });
                 if (isVisible) this.drawDebris(ctx, debris);
@@ -54,20 +70,51 @@ export class RenderService {
         });
 
         // 4. Draw Fleet Movement Paths
-        this.drawFleetMovementPaths(ctx, state, viewingPlayerId, isHostGodView);
+        this.drawFleetMovementPaths(ctx, state, viewingId, isHostGodView);
+
+        // Determine which systems are visible to the player (has ships present or owns the system)
+        const visibleSystemIds = new Set();
+        if (!isHostGodView) {
+            state.systems.forEach(s => {
+                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
+                    if (owner && owner.team === viewingId) visibleSystemIds.add(s.id);
+                } else {
+                    if (s.owner === viewingId) visibleSystemIds.add(s.id);
+                }
+            });
+            state.ships.forEach(s => {
+                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
+                    if (owner && owner.team === viewingId && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
+                } else {
+                    if (s.owner === viewingId && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
+                }
+            });
+        }
 
         // 5. Draw Ships
         const visibleShips = isHostGodView 
             ? state.ships 
-            : state.ships.filter(ship => ship.owner === viewingPlayerId); // TODO: Add logic for spied ships
+            : state.ships.filter(ship => {
+                let isOwner = false;
+                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                    const owner = this.gameEngine.state.players.find(p => p.id === ship.owner);
+                    isOwner = owner && owner.team === viewingId;
+                } else {
+                    isOwner = ship.owner === viewingId;
+                }
+                return isOwner || (ship.currentSystemId && visibleSystemIds.has(ship.currentSystemId));
+            });
+            
         visibleShips.forEach(ship => this.drawShip(ctx, ship));
 
-        this.drawSelection(ctx);
+        this.drawSelection(ctx, checkVisibility, visibleShips);
 
         ctx.restore();
     }
 
-    drawFogOfWar(ctx, state, viewingPlayerId, isHostGodView) {
+    drawFogOfWar(ctx, state, viewingId, isHostGodView, checkVisibility) {
         if (isHostGodView) return;
 
         ctx.save();
@@ -91,7 +138,14 @@ export class RenderService {
         };
 
         // Vision from Owned Ships
-        const myShips = state.ships.filter(s => s.owner === viewingPlayerId);
+        const myShips = state.ships.filter(s => {
+            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
+                return owner && owner.team === viewingId;
+            }
+            return s.owner === viewingId;
+        });
+
         myShips.forEach(ship => {
             // Scouts have larger sensor range
             const sensorRange = ship.type === 'Scout' ? 250 : 150;
@@ -100,11 +154,11 @@ export class RenderService {
 
         // Vision from Owned Systems
         state.systems.forEach(system => {
-            const visibility = system.visibility[viewingPlayerId];
+            const visibility = checkVisibility(system);
             // Cut a hole for any system that is not completely unexplored.
             // This includes owned, explored, and scouted systems.
             if (visibility && visibility !== 'unexplored') {
-                const r = this.gameEngine.getSystemEffectiveRadius(system) + 100;
+                const r = this.gameEngine.spatialService.getSystemEffectiveRadius(system) + 100;
                 cutHole(system.x, system.y, r);
             }
         });
@@ -112,15 +166,20 @@ export class RenderService {
         ctx.restore(); // Restore composite operation to default ('source-over')
     }
 
-    drawFleetMovementPaths(ctx, state, viewingPlayerId, isHostGodView) {
-        const playersToRender = isHostGodView ? state.players : state.players.filter(p => p.id === viewingPlayerId);
+    drawFleetMovementPaths(ctx, state, viewingId, isHostGodView) {
+        const playersToRender = isHostGodView ? state.players : state.players.filter(p => {
+            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                return p.team === viewingId;
+            }
+            return p.id === viewingId;
+        });
 
         // Draw paths for fleets
         playersToRender.forEach(player => {
             if (!player.fleets) return;
 
             player.fleets.forEach(fleet => {
-                const fleetShips = state.ships.filter(s => fleet.shipIds.includes(s.id));
+                const fleetShips = state.ships.filter(s => fleet.shipIds.includes(s.id)); 
                 if (fleetShips.length === 0) return;
 
                 // Find a representative moving ship to determine the target
@@ -162,7 +221,15 @@ export class RenderService {
 
         // Draw paths for individual moving ships
         const unassignedMovingShips = state.ships.filter(s => {
-            const isVisible = isHostGodView || s.owner === viewingPlayerId;
+            let isVisible = isHostGodView;
+            if (!isVisible) {
+                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
+                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
+                    isVisible = owner && owner.team === viewingId;
+                } else {
+                    isVisible = s.owner === viewingId;
+                }
+            }
             return isVisible && s.targetId && !s.fleetId && !s.isStation;
         });
 
@@ -185,12 +252,12 @@ export class RenderService {
         });
     }
 
-    drawLinks(ctx, systems, viewingPlayerId, isHostGodView) {
+    drawLinks(ctx, systems, viewingId, isHostGodView, checkVisibility) {
         ctx.lineWidth = 2;
         const drawn = new Set();
         
         systems.forEach(sys => {
-            const visibility = sys.visibility[viewingPlayerId];
+            const visibility = checkVisibility(sys);
             if (!isHostGodView && (!visibility || visibility === 'unexplored')) {
                 return; // Don't draw links from an unexplored system
             }
@@ -222,10 +289,9 @@ export class RenderService {
         ctx.setLineDash([]);
     }
 
-    drawSystem(ctx, system) {
+    drawSystem(ctx, system, checkVisibility) {
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
-        const viewingPlayerId = this.gameEngine.getViewingPlayerId();
-        const visibility = system.visibility[viewingPlayerId];
+        const visibility = checkVisibility(system);
         
         // In God View, the host sees everything. Otherwise, respect visibility.
         if (!isHostGodView && (!visibility || visibility === 'unexplored')) return;
@@ -241,7 +307,7 @@ export class RenderService {
         ctx.beginPath();
         ctx.arc(system.x, system.y, r, 0, Math.PI * 2);
         ctx.fill();
-
+        
         // Draw System Name
         const baseFontSize = 12;
         const finalFontSize = Math.max(baseFontSize, 8 / this.gameEngine.camera.zoom); // Ensure a minimum readable size on screen
@@ -271,6 +337,29 @@ export class RenderService {
             ctx.beginPath();
             ctx.arc(system.x, system.y, r + 5, 0, Math.PI * 2); // A ring just outside the star's glow
             ctx.stroke();
+        }
+
+        // Draw Capture Activity Indicator on System (if any planet is being captured)
+        const activeCapture = system.planets.find(p => p.captureProgress > 0 && p.captureProgress < 100);
+        if (activeCapture && (isHostGodView || visibility === 'explored')) {
+             const capturingPlayer = this.gameEngine.state.players.find(p => p.id === activeCapture.capturingTeam);
+             if (capturingPlayer) {
+                const indicatorRadius = r + 8 + (4 / this.gameEngine.camera.zoom);
+                ctx.save();
+                ctx.strokeStyle = capturingPlayer.color;
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
+                ctx.setLineDash([4 / this.gameEngine.camera.zoom, 4 / this.gameEngine.camera.zoom]);
+                
+                // Rotate based on time for visibility
+                const rotation = (Date.now() / 2000) % (Math.PI * 2);
+                ctx.translate(system.x, system.y);
+                ctx.rotate(rotation);
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, indicatorRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+             }
         }
 
         // Draw Planets (Miniature representation orbiting the star)
@@ -313,44 +402,63 @@ export class RenderService {
         ctx.arc(x, y, finalRadius, 0, Math.PI * 2);
         ctx.fill();
         
+        let ringOffset = 3 / this.gameEngine.camera.zoom;
+
         if (planet.owner) {
             const ownerPlayer = this.gameEngine.state.players.find(p => p.id === planet.owner);
             ctx.strokeStyle = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
             ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Make it visible like the capture ring
             ctx.beginPath();
-            ctx.arc(x, y, finalRadius + (3 / this.gameEngine.camera.zoom), 0, Math.PI * 2);
+            ctx.arc(x, y, finalRadius + ringOffset, 0, Math.PI * 2);
             ctx.stroke();
+            ringOffset += 3 / this.gameEngine.camera.zoom; // Push next ring out
         }
 
         // Draw capture progress ring
         if (planet.captureProgress > 0 && planet.captureProgress < 100) {
             const capturingPlayer = this.gameEngine.state.players.find(p => p.id === planet.capturingTeam);
             if (capturingPlayer) {
+                const captureRadius = finalRadius + ringOffset;
+
+                // Draw background track (faint)
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
+                ctx.beginPath();
+                ctx.arc(x, y, captureRadius, 0, Math.PI * 2);
+                ctx.stroke();
+
                 ctx.strokeStyle = capturingPlayer.color;
                 ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Keep it visible
                 ctx.beginPath();
                 // Draw a partial arc based on capture progress, starting from the top
                 const endAngle = (planet.captureProgress / 100) * Math.PI * 2 - (Math.PI / 2);
-                ctx.arc(x, y, finalRadius + (3 / this.gameEngine.camera.zoom), -Math.PI / 2, endAngle);
+                ctx.arc(x, y, captureRadius, -Math.PI / 2, endAngle);
                 ctx.stroke();
             }
         }
     }
 
     drawDebris(ctx, debris) {
-        ctx.fillStyle = '#777';
+        const scrapAmount = debris.resources?.scrap || 0;
+        
+        // "high level of opacity when not much debris is present and a low level of opacity a large amount of debris is present"
+        // Small amount (e.g. 50) -> High Opacity (e.g. 0.8)
+        // Large amount (e.g. 500) -> Low Opacity (e.g. 0.2)
+        const opacity = Math.max(0.2, 0.9 - (scrapAmount / 600));
+        const radius = 10 + (scrapAmount / 20); // Scale size with amount
+
+        const grad = ctx.createRadialGradient(debris.x, debris.y, radius * 0.2, debris.x, debris.y, radius);
+        grad.addColorStop(0, `rgba(150, 150, 150, ${opacity})`);
+        grad.addColorStop(1, `rgba(100, 100, 100, 0)`);
+
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        // Draw a little jagged shape
-        ctx.moveTo(debris.x - 3, debris.y - 3);
-        ctx.lineTo(debris.x + 2, debris.y - 4);
-        ctx.lineTo(debris.x + 4, debris.y + 2);
-        ctx.lineTo(debris.x - 2, debris.y + 4);
-        ctx.closePath();
+        ctx.arc(debris.x, debris.y, radius, 0, Math.PI * 2);
         ctx.fill();
     }
 
     drawShip(ctx, ship) {
-        const sprite = this.spriteService.getSprite(ship.team, ship.type);
+        const sprite = this.spriteService.getSprite(ship.techBase, ship.type);
         if (this.spriteService.isLoaded && sprite) {
             this._drawShipSprite(ctx, ship, sprite);
         } else {
@@ -453,7 +561,7 @@ export class RenderService {
             // Ships
             ctx.beginPath();
 
-            if (ship.team === 'COVENANT') {
+            if (ship.techBase === 'COVENANT') {
                 // --- COVENANT SHIP SHAPES (Curved, Organic) ---
                 if (ship.type === 'Fighter') {
                     ctx.moveTo(0, -8);
@@ -539,7 +647,7 @@ export class RenderService {
         ctx.restore();
     }
 
-    drawSelection(ctx) {
+    drawSelection(ctx, checkVisibility, visibleShips) {
         const selLocId = this.gameEngine.selectionManager.selectedLocationId;
         const selShipId = this.gameEngine.selectionManager.selectedShipId;
         const state = this.gameEngine.state;
@@ -547,19 +655,45 @@ export class RenderService {
         if (selLocId) {
             const sys = state.systems.find(s => s.id === selLocId);
             if (sys) {
-                // Make padding and line width constant in screen space by dividing by zoom
-                const selectionPadding = 8 / this.gameEngine.camera.zoom;
-                ctx.strokeStyle = '#00FF00';
-                ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
-                ctx.beginPath();
-                ctx.arc(sys.x, sys.y, sys.r + selectionPadding, 0, Math.PI * 2);
-                ctx.stroke();
+                // Check visibility
+                const visibility = checkVisibility ? checkVisibility(sys) : 'explored';
+                if (visibility && visibility !== 'unexplored') {
+                    // Make padding and line width constant in screen space by dividing by zoom
+                    const selectionPadding = 8 / this.gameEngine.camera.zoom;
+                    ctx.strokeStyle = '#00FF00';
+                    ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
+                    ctx.beginPath();
+                    ctx.arc(sys.x, sys.y, sys.r + selectionPadding, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    // Draw effective radius boundary
+                    const effectiveRadius = this.gameEngine.spatialService.getSystemEffectiveRadius(sys);
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
+                    ctx.lineWidth = 1 / this.gameEngine.camera.zoom;
+                    ctx.setLineDash([5 / this.gameEngine.camera.zoom, 5 / this.gameEngine.camera.zoom]);
+                    ctx.beginPath();
+                    ctx.arc(sys.x, sys.y, effectiveRadius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            } else {
+                // Check if it's a station (which is stored in ships but selected as a location)
+                const station = state.ships.find(s => s.id === selLocId && s.isStation);
+                if (station && (!visibleShips || visibleShips.includes(station))) {
+                    const selectionRadius = 40 / this.gameEngine.camera.zoom;
+                    ctx.strokeStyle = '#00FF00';
+                    ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
+                    ctx.beginPath();
+                    ctx.arc(station.x, station.y, selectionRadius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
             }
         }
 
         if (selShipId) {
             const ship = state.ships.find(s => s.id === selShipId);
-            if (ship) {
+            if (ship && (!visibleShips || visibleShips.includes(ship))) {
                 // Make selection radius and line width constant in screen space
                 const selectionRadius = 12 / this.gameEngine.camera.zoom;
                 ctx.strokeStyle = '#00FF00';

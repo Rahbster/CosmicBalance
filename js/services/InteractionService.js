@@ -23,24 +23,16 @@ export class InteractionService {
             this.lastMouseEvent = e;
             this.isLongPress = false;
 
-            // Start a timer for long press
-            this.pressTimer = setTimeout(() => {
-                this.isLongPress = true;
-                const coords = this.getMousePos(e);
-                const ship = this.findShipAt(coords.x, coords.y);
-                if (ship) {
-                    // Dispatch an event for the UI layer to handle
-                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { detail: { entity: ship, x: e.clientX, y: e.clientY } }));
-                }
-            }, 500); // 500ms for long press
-
             const coords = this.getMousePos(e);
             // Logging moved to only fire when a pan starts
             const { x, y } = coords;
 
             // --- Updated Selection Logic ---
             // Find all potential targets under the mouse click to select the closest one.
-            const SHIP_CLICK_RADIUS_SQ = 15 * 15; // Squared click radius for ships (15px)
+            // Scale click radius by zoom to ensure ships are clickable when zoomed out
+            const minScreenRadius = 15;
+            const worldClickRadius = Math.max(15, minScreenRadius / this.engine.camera.zoom);
+            const SHIP_CLICK_RADIUS_SQ = worldClickRadius * worldClickRadius;
 
             const viewingPlayerId = this.engine.getViewingPlayerId();
             const isHostGodView = this.engine.isHost && this.engine.hostView.mode === 'god';
@@ -57,7 +49,7 @@ export class InteractionService {
                 if (!isHostGodView && (!visibility || visibility === 'unexplored')) return false;
                 const dx = p.x - x;
                 const dy = p.y - y;
-                const clickRadius = this.engine.getSystemEffectiveRadius(p);
+                const clickRadius = this.engine.spatialService.getSystemEffectiveRadius(p);
                 return (dx * dx + dy * dy) < (clickRadius * clickRadius);
             });
 
@@ -74,11 +66,8 @@ export class InteractionService {
 
                 const dx = d.x - x;
                 const dy = d.y - y;
-                return (dx * dx + dy * dy) < (15 * 15); // 15px click radius for debris
+                return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ; // Use same scaled radius for debris
             });
-
-            let closestEntity = null;
-            let minDistanceSq = Infinity;
 
             const allTargets = [
                 ...clickedShips.map(s => ({ type: 'ship', entity: s })),
@@ -89,22 +78,20 @@ export class InteractionService {
             allTargets.forEach(target => {
                 const dx = target.entity.x - x;
                 const dy = target.entity.y - y;
-                const distSq = dx * dx + dy * dy;
-                if (distSq < minDistanceSq) {
-                    minDistanceSq = distSq;
-                    closestEntity = target;
-                }
+                target.distSq = dx * dx + dy * dy;
             });
+            
+            // Sort by distance to find the best target, but allow fall-through
+            allTargets.sort((a, b) => a.distSq - b.distSq);
 
-            // Handle the closest entity found
-            if (closestEntity) {
+            for (const target of allTargets) {
                 const selectedShipId = this.engine.selectionManager.selectedShipId;
-                const clickedShipIsSelected = selectedShipId && closestEntity.type === 'ship' && closestEntity.entity.id === selectedShipId;
+                const clickedShipIsSelected = selectedShipId && target.type === 'ship' && target.entity.id === selectedShipId;
 
                 // If a ship is already selected and we click on that *same* ship,
                 // check if there's a system underneath it that we should prioritize instead (de-selection).
                 if (clickedShipIsSelected) {
-                    const systemUnderneath = clickedSystems[0]; // clickedSystems should only have one at most
+                    const systemUnderneath = clickedSystems.find(s => s.id !== target.entity.currentSystemId); // Try to find a system
                     if (systemUnderneath) {
                         // We clicked the selected ship, but there's a system here.
                         // Treat this click as a click on the system.
@@ -113,8 +100,8 @@ export class InteractionService {
                     }
                 }
 
-                if (closestEntity.type === 'ship') {
-                    const ship = closestEntity.entity;
+                if (target.type === 'ship') {
+                    const ship = target.entity;
                     const isOwner = ship.owner === this.engine.getIdentity().guid;
                     const isGod = this.engine.isHost && this.engine.hostView.mode === 'god';
                     
@@ -126,8 +113,12 @@ export class InteractionService {
                             this.engine.selectionManager.setSelectedShip(ship.id);
                         }
                     }
-                } else if (closestEntity.type === 'system') {
-                    const system = closestEntity.entity;
+                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                        detail: { entity: ship, x: e.clientX, y: e.clientY } 
+                    }));
+                    return; // Stop processing if we handled a ship
+                } else if (target.type === 'system') {
+                    const system = target.entity;
                     let moveSuccessful = false;
 
                     if (selectedShipId) {
@@ -140,16 +131,20 @@ export class InteractionService {
 
                     if (!moveSuccessful) {
                         this.engine.selectionManager.setSelectedLocation(system.id);
+                        this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                            detail: { entity: system, x: e.clientX, y: e.clientY } 
+                        }));
                     }
-                } else if (closestEntity.type === 'debris') {
-                    const debris = closestEntity.entity;
+                    return; // Stop processing if we handled a system
+                } else if (target.type === 'debris') {
+                    const debris = target.entity;
                     if (selectedShipId) {
                         // moveShipToTarget will validate if the ship is a salvager
-                        this.engine.moveShipToTarget(selectedShipId, debris.id);
+                        const moveSuccess = this.engine.moveShipToTarget(selectedShipId, debris.id);
+                        if (moveSuccess) return; // Only stop if the move command was valid (i.e., it was a Salvager)
                     }
-                    return; // Don't fall through to panning
+                    // If not a salvager, or no ship selected, fall through to the next target (e.g., the system underneath)
                 }
-                return;
             }
 
             this.engine.isAnimating = false; // Stop any ongoing animation if user starts panning
@@ -252,11 +247,32 @@ export class InteractionService {
     }
 
     findShipAt(worldX, worldY) {
-        const SHIP_CLICK_RADIUS_SQ = 15 * 15;
-        return this.state.ships.find(s => {
+        const minScreenRadius = 15;
+        const worldClickRadius = Math.max(15, minScreenRadius / this.engine.camera.zoom);
+        const SHIP_CLICK_RADIUS_SQ = worldClickRadius * worldClickRadius;
+
+        const shipsUnderCursor = this.state.ships.filter(s => {
             const dx = s.x - worldX;
             const dy = s.y - worldY;
             return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ;
         });
+
+        if (shipsUnderCursor.length === 0) return null;
+
+        // 1. Prioritize currently selected ship/station to ensure menu matches selection
+        const currentSelectionId = this.engine.selectionManager.selectedShipId || this.engine.selectionManager.selectedLocationId;
+        if (currentSelectionId) {
+            const selected = shipsUnderCursor.find(s => s.id === currentSelectionId);
+            if (selected) return selected;
+        }
+
+        // 2. Otherwise return the closest one (closest to the center of the click)
+        return shipsUnderCursor.reduce((closest, current) => {
+            const dx = current.x - worldX;
+            const dy = current.y - worldY;
+            const distSq = dx * dx + dy * dy;
+            if (!closest || distSq < closest.distSq) return { ship: current, distSq };
+            return closest;
+        }, null).ship;
     }
 }

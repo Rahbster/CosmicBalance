@@ -2,10 +2,10 @@
  * WebRTC Peer Connection Manager
  * Adapted from TeamSudoku logic (Native WebRTC)
  */
-import { getIdentity } from './app.js';
 
 export class PeerManager {
-    constructor() {
+    constructor(profileService) {
+        this.profileService = profileService;
         this.connection = null;
         this.dataChannel = null;
         this.onMessageCallback = null;
@@ -141,7 +141,7 @@ export class PeerManager {
 
     // Sends this user's identity to the connected peer
     sendIdentity() {
-        const identity = getIdentity();
+        const identity = this.profileService.getIdentity();
         this.send({
             type: 'identity',
             guid: identity.guid,

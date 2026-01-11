@@ -41,6 +41,7 @@ export class TechTreeModal {
         }
         this.render();
         this.modal.classList.remove('hidden');
+        this.engine.selectionManager.renderTechTreeProgress();
     }
 
     hide() {
@@ -48,9 +49,9 @@ export class TechTreeModal {
     }
 
     render() {
-        const myTeam = this.getTeam();
-        const teamTechs = this.techTreeData[myTeam];
         const player = this.engine.state.players.find(p => p.id === this.engine.getIdentity().guid);
+        const myTechBase = player ? player.techBase : this.getTeam();
+        const teamTechs = this.techTreeData[myTechBase];
         if (!teamTechs || !player) {
             this.contentContainer.innerHTML = '<p>No tech tree available for your faction.</p>';
             return;
@@ -103,6 +104,7 @@ export class TechTreeModal {
                 <div class="modal-content">
                     <span id="close-tech-tree-modal" class="close-modal">&times;</span>
                     <h2>Technology Tree</h2>
+                    <div id="research-queue-container"></div>
                     <div id="tech-tree-content"></div>
                 </div>
             </div>

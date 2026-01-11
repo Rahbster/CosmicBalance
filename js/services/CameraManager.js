@@ -69,10 +69,10 @@ export class CameraManager {
 
         const padding = 100;
         // Use effective radius for a more accurate bounding box
-        const minX = Math.min(...allSystems.map(s => s.x - this.engine.getSystemEffectiveRadius(s))) - padding;
-        const maxX = Math.max(...allSystems.map(s => s.x + this.engine.getSystemEffectiveRadius(s))) + padding;
-        const minY = Math.min(...allSystems.map(s => s.y - this.engine.getSystemEffectiveRadius(s))) - padding;
-        const maxY = Math.max(...allSystems.map(s => s.y + this.engine.getSystemEffectiveRadius(s))) + padding;
+        const minX = Math.min(...allSystems.map(s => s.x - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
+        const maxX = Math.max(...allSystems.map(s => s.x + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
+        const minY = Math.min(...allSystems.map(s => s.y - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
+        const maxY = Math.max(...allSystems.map(s => s.y + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
 
         const contentWidth = maxX - minX;
         const contentHeight = maxY - minY;
@@ -92,10 +92,10 @@ export class CameraManager {
         if (allSystems.length === 0) return pan;
 
         const padding = 100;
-        const minX = Math.min(...allSystems.map(s => s.x - this.engine.getSystemEffectiveRadius(s))) - padding;
-        const maxX = Math.max(...allSystems.map(s => s.x + this.engine.getSystemEffectiveRadius(s))) + padding;
-        const minY = Math.min(...allSystems.map(s => s.y - this.engine.getSystemEffectiveRadius(s))) - padding;
-        const maxY = Math.max(...allSystems.map(s => s.y + this.engine.getSystemEffectiveRadius(s))) + padding;
+        const minX = Math.min(...allSystems.map(s => s.x - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
+        const maxX = Math.max(...allSystems.map(s => s.x + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
+        const minY = Math.min(...allSystems.map(s => s.y - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
+        const maxY = Math.max(...allSystems.map(s => s.y + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
 
         // Calculate the two potential boundary points for the pan.
         const boundX1 = this.canvas.width - (maxX * zoom);

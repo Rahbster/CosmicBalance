@@ -40,9 +40,34 @@ export class UIManager {
 
     updateHeaderUI() {
         if (!this.gameEngine) return;
-        const localPlayer = this.gameEngine.getLocalPlayer();
+        
+        let displayResources = { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+        let showUI = true;
+
+        if (this.gameEngine.isHost) {
+            const { mode, faction: target } = this.gameEngine.hostView;
+            if (mode === 'god') {
+                this.gameEngine.state.players.forEach(p => {
+                    Object.keys(displayResources).forEach(k => displayResources[k] += (p.resources[k] || 0));
+                });
+            } else if (mode === 'faction') {
+                this.gameEngine.state.players.filter(p => p.team === target).forEach(p => {
+                    Object.keys(displayResources).forEach(k => displayResources[k] += (p.resources[k] || 0));
+                });
+            } else {
+                // Player view
+                const p = this.gameEngine.state.players.find(pl => pl.id === target) || this.gameEngine.getLocalPlayer();
+                if (p) displayResources = p.resources;
+                else showUI = false;
+            }
+        } else {
+            const localPlayer = this.gameEngine.getLocalPlayer();
+            if (localPlayer) displayResources = localPlayer.resources;
+            else showUI = false;
+        }
+
         const resourceDisplay = document.getElementById('resource-display');
-        if (!localPlayer || !localPlayer.resources) {
+        if (!showUI) {
             if (resourceDisplay) resourceDisplay.style.display = 'none';
             return;
         }
@@ -58,7 +83,7 @@ export class UIManager {
         };
 
         RESOURCE_TYPES.forEach(res => {
-            updateResource(res.domId, localPlayer.resources[res.key], res.threshold || 0);
+            updateResource(res.domId, displayResources[res.key], res.threshold || 0);
         });
         
         // Update System Counts by Participant

@@ -11,9 +11,11 @@ import { RadialMenu } from './ui/RadialMenu.js';
 import { LoggingModal } from './modals/LoggingModal.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 import { UIManager } from './ui/UIManager.js';
+import { ProfileService } from './services/ProfileService.js';
 
 let gameEngine = null;
 let uiManager = new UIManager(null); // Initialize early for theme
+const profileService = new ProfileService();
 
 // Initialize Theme on script load to prevent flash of wrong theme
 const savedTheme = localStorage.getItem('theme');
@@ -24,51 +26,7 @@ if (savedTheme) {
     uiManager.setTheme(prefersDarkScheme.matches ? 'dark' : 'light');
 }
 
-// --- User Identity & Peer History ---
-function getIdentity() {
-    let guid = localStorage.getItem('pwa_user_guid');
-    if (!guid) {
-        guid = crypto.randomUUID();
-        localStorage.setItem('pwa_user_guid', guid);
-    }
-    const name = localStorage.getItem('pwa_display_name') || 'Anonymous';
-    return { guid, name };
-}
-
-function saveIdentity(name) {
-    localStorage.setItem('pwa_display_name', name);
-}
-
-function savePeer(guid, name) {
-    if (getIdentity().guid === guid) return; // Don't save self
-    let peers = JSON.parse(localStorage.getItem('pwa_peers') || '{}');
-    peers[guid] = { name, lastSeen: Date.now() };
-    localStorage.setItem('pwa_peers', JSON.stringify(peers));
-    loadPeerList(); // Refresh the UI
-}
-
-function getPeers() {
-    return JSON.parse(localStorage.getItem('pwa_peers') || '{}');
-}
-
-function removePeer(guid) {
-    let peers = getPeers();
-    delete peers[guid];
-    localStorage.setItem('pwa_peers', JSON.stringify(peers));
-}
-
-// Export for use in peer.js
-export { getIdentity, savePeer };
-
-// --- Team Management ---
-function getTeam() {
-    return localStorage.getItem('pwa_team') || 'UNSC';
-}
-function saveTeam(team) {
-    localStorage.setItem('pwa_team', team);
-}
-
-const peerManager = new PeerManager();
+const peerManager = new PeerManager(profileService);
 let currentRemoteName = 'Peer';
 
 const signaling = new SignalingChannel();
@@ -76,7 +34,7 @@ const toastManager = new ToastManager();
 window.toastManager = toastManager; // Expose to global scope for engine access
 const chatManager = new ChatManager({
     send: (data) => peerManager.send(data)
-}, getIdentity, getTeam);
+}, () => profileService.getIdentity(), () => profileService.getTeam());
 
 let techTreeModal = null;
 let fleetManagerModal = null;
@@ -114,7 +72,7 @@ peerManager.onMessage((data) => {
         // This is now handled by the client sending its own GUID.
     } else if (data.type === 'identity') {
         currentRemoteName = data.name;
-        savePeer(data.guid, data.name);
+        profileService.savePeer(data.guid, data.name);
         console.log('Received data:', data);
     } else if (data.type.startsWith('GAME_')) {
         // Pass game events to engine
@@ -133,7 +91,7 @@ peerManager.onMessage((data) => {
             uiManager.updateColorPickerUI(); // Refresh color picker availability
         }
     } else if (data.type === 'GAME_PROMPT_RENAME') {
-        const localPlayerId = getIdentity().guid;
+        const localPlayerId = profileService.getIdentity().guid;
         if (data.playerId === localPlayerId) {
             // This client needs to name the planet
             const renameModal = document.getElementById('rename-planet-modal');
@@ -168,23 +126,55 @@ function confirmPlanetRename(systemId) {
     }
 }
 
-function populateFactionSelect() {
+function updateHostViewControls() {
     if (!gameEngine) return;
+    const hostViewSelect = document.getElementById('host-view-select');
     const hostFactionSelect = document.getElementById('host-faction-select');
-    if (!hostFactionSelect) return;
+    if (!hostViewSelect || !hostFactionSelect) return;
+
+    const mode = hostViewSelect.value;
+    gameEngine.hostView.mode = mode;
 
     hostFactionSelect.innerHTML = '';
-    gameEngine.state.players.forEach(player => {
-        const option = document.createElement('option');
-        option.value = player.id;
-        option.textContent = `${player.factionName} (${player.team})`;
-        hostFactionSelect.appendChild(option);
-    });
-    // Set the initial value in the engine
-    if (gameEngine.state.players.length > 0) {
-        const localPlayer = gameEngine.getLocalPlayer();
-        hostFactionSelect.value = localPlayer ? localPlayer.id : gameEngine.state.players[0].id;
-        gameEngine.hostView.faction = hostFactionSelect.value;
+    
+    if (mode === 'god') {
+        hostFactionSelect.classList.add('hidden');
+    } else {
+        hostFactionSelect.classList.remove('hidden');
+        if (mode === 'player') {
+            gameEngine.state.players.forEach(player => {
+                const option = document.createElement('option');
+                option.value = player.id;
+                option.textContent = `${player.factionName} (${player.team})`;
+                hostFactionSelect.appendChild(option);
+            });
+        } else if (mode === 'faction') {
+            const teams = [...new Set(gameEngine.state.players.map(p => p.team))];
+            teams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team;
+                option.textContent = team;
+                hostFactionSelect.appendChild(option);
+            });
+        }
+        
+        // Set initial value if not set or invalid
+        if (hostFactionSelect.options.length > 0) {
+             // Try to keep current selection if valid
+             const current = gameEngine.hostView.faction;
+             let found = false;
+             for(let i=0; i<hostFactionSelect.options.length; i++) {
+                 if (hostFactionSelect.options[i].value === current) {
+                     hostFactionSelect.value = current;
+                     found = true;
+                     break;
+                 }
+             }
+             if (!found) {
+                 hostFactionSelect.value = hostFactionSelect.options[0].value;
+                 gameEngine.hostView.faction = hostFactionSelect.value;
+             }
+        }
     }
 }
 
@@ -213,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showPeerConnectionModal(toastManager, {
                 signaling,
                 peerManager,
-                getIdentity
+                getIdentity: () => profileService.getIdentity()
             });
         });
     }
@@ -266,10 +256,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Settings View
     const settingsNameInput = document.getElementById('settings-name');
     if (settingsNameInput) {
-        settingsNameInput.value = getIdentity().name;
+        settingsNameInput.value = profileService.getIdentity().name;
         settingsNameInput.addEventListener('change', (e) => {
             const newName = e.target.value;
-            saveIdentity(newName);
+            profileService.saveIdentity(newName);
             // Also update the game state if a game is in progress
             if (gameEngine) gameEngine.requestPlayerUpdate({ factionName: newName });
         });
@@ -278,8 +268,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Team Selector
     const teamSelect = document.getElementById('team-select');
     if (teamSelect) {
-        teamSelect.value = getTeam();
-        teamSelect.addEventListener('change', (e) => saveTeam(e.target.value));
+        teamSelect.value = profileService.getTeam();
+        teamSelect.addEventListener('change', (e) => profileService.saveTeam(e.target.value));
     }
 
     // Theme Toggle Listener
@@ -300,10 +290,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Game Engine on load since it's the main view
     if (!gameEngine && gameCanvas) {
-        gameEngine = new GameEngine(gameCanvas, peerManager, getIdentity, getTeam);
+        gameEngine = new GameEngine(gameCanvas, peerManager, profileService);
         uiManager.gameEngine = gameEngine; // Link engine to UI manager
         uiManager.colorPicker = document.getElementById('faction-color-picker'); // Re-bind element
-        techTreeModal = new TechTreeModal(gameEngine, getTeam);
+        techTreeModal = new TechTreeModal(gameEngine, () => profileService.getTeam());
         fleetManagerModal = new FleetManagerModal(gameEngine);
         loggingModal = new LoggingModal(gameEngine);
         gameEngine.start();
@@ -311,140 +301,148 @@ document.addEventListener('DOMContentLoaded', () => {
         // --- Radial Menu Integration ---
         gameCanvas.addEventListener('showradialmenu', (e) => {
             const { entity, x, y } = e.detail;
-            const isOwner = entity.owner === getIdentity().guid;
-
-            if (!isOwner) return; // Only show menu for ships you own
+            const isSystem = !!(entity.planets && entity.r);
+            
+            // Allow menu for systems even if not owned (e.g. to see details or just selection feedback)
+            // For ships, usually only owner, but maybe we want 'Details' for enemy ships too?
+            // Keeping owner check for command-giving, but basic menu might be open to all.
 
             const menuItems = [
                 {
                     label: 'Details',
                     action: () => {
                         // Explicitly open the panel when "Details" is clicked in the radial menu
-                        gameEngine.setSelectedShip(entity.id, true);
+                        if (isSystem) {
+                            gameEngine.setSelectedLocation(entity.id, true);
+                        } else {
+                            gameEngine.setSelectedShip(entity.id, true);
+                        }
                     }
                 }
             ];
 
-            // If the ship is currently patrolling, add Stop Patrol action
-            if (entity.patrolSystemId) {
-                menuItems.push({
-                    label: 'Stop Patrol',
-                    action: () => {
-                        gameEngine.requestStopPatrol(entity.id);
-                        toastManager.show('Patrol stopped.', 'info');
-                    }
-                });
-            }
+            const isOwner = entity.owner === profileService.getIdentity().guid;
 
-            // If the ship is a scout, add scout actions
-            if (entity.type === 'Scout') {
-                const currentSystem = gameEngine.getCurrentSystem(entity);
-
-                if (currentSystem) {
-                    // Add Patrol action if in a friendly system
-                    if (currentSystem.owner === getIdentity().guid) {
-                        menuItems.push({
-                            label: `Patrol ${currentSystem.name}`,
-                            action: () => {
-                                gameEngine.requestPatrol(entity.id, currentSystem.id);
-                                toastManager.show(`Patrolling ${currentSystem.name}.`, 'info');
-                            }
-                        });
-                    }
-
-                    const viewingPlayerId = getIdentity().guid;
-                    const unexploredNeighbors = currentSystem.links
-                        .map(link => gameEngine.state.systems.find(s => s.id === link.targetId))
-                        .filter(neighbor => {
-                            if (!neighbor) return false;
-                            const visibility = neighbor.visibility[viewingPlayerId];
-                            return !visibility || visibility === 'unexplored';
-                        });
-
-                    unexploredNeighbors.forEach(neighbor => {
-                        menuItems.push({
-                            label: `Scout ${neighbor.name}`,
-                            action: () => {
-                                gameEngine.requestScoutMission(entity.id, neighbor.id);
-                                toastManager.show(`Scout mission to ${neighbor.name} initiated.`, 'info');
-                            }
-                        });
+            if (isOwner) {
+                // If the ship is currently patrolling, add Stop Patrol action
+                if (entity.patrolSystemId) {
+                    menuItems.push({
+                        label: 'Stop Patrol',
+                        action: () => {
+                            gameEngine.requestStopPatrol(entity.id);
+                            toastManager.show('Patrol stopped.', 'info');
+                        }
                     });
                 }
-            }
 
-            // If the ship is a TroopTransport, add Colonize actions
-            if (entity.type === 'TroopTransport') {
-                const currentSystem = gameEngine.getCurrentSystem(entity);
+                // If the ship is a scout, add scout actions
+                if (entity.type === 'Scout') {
+                    const currentSystem = gameEngine.spatialService.getCurrentSystem(entity);
 
-                if (currentSystem) {
-                    const viewingPlayerId = getIdentity().guid;
-                    // Find visible neighbors (explored or scouted)
-                    const visibleNeighbors = currentSystem.links
-                        .map(link => gameEngine.state.systems.find(s => s.id === link.targetId))
-                        .filter(neighbor => {
-                            if (!neighbor) return false;
-                            const visibility = neighbor.visibility[viewingPlayerId];
-                            return visibility === 'explored' || visibility === 'scouted';
-                        });
-
-                    visibleNeighbors.forEach(neighbor => {
-                        // Check if neighbor has any planets not owned by me (potential for colonization/capture)
-                        const hasTargets = neighbor.planets.some(p => p.owner !== viewingPlayerId);
-                        
-                        if (hasTargets) {
+                    if (currentSystem) {
+                        // Add Patrol action if in a friendly system
+                        if (currentSystem.owner === profileService.getIdentity().guid) {
                             menuItems.push({
-                                label: `Colonize ${neighbor.name}`,
+                                label: `Patrol ${currentSystem.name}`,
                                 action: () => {
-                                    gameEngine.moveShip(entity.id, neighbor.id);
-                                    toastManager.show(`Transport sent to colonize ${neighbor.name}.`, 'info');
+                                    gameEngine.requestPatrol(entity.id, currentSystem.id);
+                                    toastManager.show(`Patrolling ${currentSystem.name}.`, 'info');
                                 }
                             });
                         }
-                    });
-                }
-            }
 
-            // If the ship is a salvager, add salvager actions
-            if (entity.type === 'Salvager') {
-                // find nearby debris fields
-                const nearbyDebris = gameEngine.state.debrisFields.filter(d => {
-                    const dx = d.x - entity.x;
-                    const dy = d.y - entity.y;
-                    return (dx * dx + dy * dy) < (400 * 400); // within 400px radius
-                });
+                        const viewingPlayerId = profileService.getIdentity().guid;
+                        const neighborsToScout = currentSystem.links
+                            .map(link => gameEngine.state.systems.find(s => s.id === link.targetId))
+                            .filter(neighbor => {
+                                if (!neighbor) return false;
+                                return neighbor.owner !== viewingPlayerId;
+                            });
 
-                if (nearbyDebris.length > 0) {
-                     menuItems.push({
-                        label: `Recycle Debris`,
-                        action: () => {
-                            const targetDebris = nearbyDebris[0]; // Target the first one found
-                            gameEngine.requestSalvageMission(entity.id, targetDebris.id);
-                            toastManager.show(`Salvage mission to debris field initiated.`, 'info');
-                        }
-                    });
-                }
-            }
-
-            menuItems.push({
-                label: 'Self-Destruct',
-                action: () => {
-                    if (confirm(`Are you sure you want to self-destruct ${entity.type}?`)) {
-                        gameEngine.requestSelfDestruct(entity.id);
-                        toastManager.show(`${entity.type} self-destruct sequence initiated.`, 'error');
+                        neighborsToScout.forEach(neighbor => {
+                            menuItems.push({
+                                label: `Scout ${neighbor.name}`,
+                                action: () => {
+                                    gameEngine.requestScoutMission(entity.id, neighbor.id);
+                                    toastManager.show(`Scout mission to ${neighbor.name} initiated.`, 'info');
+                                }
+                            });
+                        });
                     }
                 }
-            });
 
-            // If the ship is a station, add a "Build" option
-            if (entity.isStation) {
-                menuItems.unshift({ // Add to the beginning
-                    label: 'Build',
-                    action: () => gameEngine.setSelectedLocation(entity.id)
-                });
+                // If the ship is a TroopTransport, add Colonize actions
+                if (entity.type === 'TroopTransport') {
+                    const currentSystem = gameEngine.spatialService.getCurrentSystem(entity);
+
+                    if (currentSystem) {
+                        const viewingPlayerId = profileService.getIdentity().guid;
+                        // Find visible neighbors (explored or scouted)
+                        const visibleNeighbors = currentSystem.links
+                            .map(link => gameEngine.state.systems.find(s => s.id === link.targetId))
+                            .filter(neighbor => {
+                                if (!neighbor) return false;
+                                const visibility = neighbor.visibility[viewingPlayerId];
+                                return visibility === 'explored' || visibility === 'scouted';
+                            });
+
+                        visibleNeighbors.forEach(neighbor => {
+                            // Check if neighbor has any planets not owned by me (potential for colonization/capture)
+                            const hasTargets = neighbor.planets.some(p => p.owner !== viewingPlayerId);
+                            
+                            if (hasTargets) {
+                                menuItems.push({
+                                    label: `Colonize ${neighbor.name}`,
+                                    action: () => {
+                                        gameEngine.moveShip(entity.id, neighbor.id);
+                                        toastManager.show(`Transport sent to colonize ${neighbor.name}.`, 'info');
+                                    }
+                                });
+                            }
+                        });
+                    }
+                }
+
+                // If the ship is a salvager, add salvager actions
+                if (entity.type === 'Salvager') {
+                    // find nearby debris fields
+                    const nearbyDebris = gameEngine.state.debrisFields.filter(d => {
+                        const dx = d.x - entity.x;
+                        const dy = d.y - entity.y;
+                        return (dx * dx + dy * dy) < (400 * 400); // within 400px radius
+                    });
+
+                    if (nearbyDebris.length > 0) {
+                        menuItems.push({
+                            label: `Recycle Debris`,
+                            action: () => {
+                                const targetDebris = nearbyDebris[0]; // Target the first one found
+                                gameEngine.requestSalvageMission(entity.id, targetDebris.id);
+                                toastManager.show(`Salvage mission to debris field initiated.`, 'info');
+                            }
+                        });
+                    }
+                }
+
+                // If the ship is a station, add a "Build" option
+                if (entity.isStation) {
+                    menuItems.unshift({ // Add to the beginning
+                        label: 'Build',
+                        action: () => gameEngine.setSelectedLocation(entity.id, true) // Explicitly open panel for build
+                    });
+                }
             }
 
-            radialMenu.show(menuItems, x, y);
+            // Calculate custom radius for the menu
+            let menuRadius = null;
+            if (isSystem) { // It's a system
+                 const effectiveRadius = gameEngine.spatialService.getSystemEffectiveRadius(entity);
+                 // Convert to screen pixels and add padding
+                 const screenRadius = effectiveRadius * gameEngine.camera.zoom;
+                 menuRadius = Math.max(75, screenRadius + 40); 
+            }
+
+            radialMenu.show(menuItems, x, y, menuRadius);
         });
 
         // Listener for bottom panel actions
@@ -458,7 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const targetId = e.target.dataset.targetId;
 
                 if (action === 'select-ship') {
-                    if (shipId) gameEngine.setSelectedShip(shipId);
+                    if (shipId) gameEngine.setSelectedShip(shipId, true);
                 } else if (action === 'open-radial') {
                     if (shipId) {
                         const ship = gameEngine.state.ships.find(s => s.id === shipId);
@@ -566,7 +564,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 .resource-display {
                     position: absolute;
                     top: 70px;
-                    left: 10px;
+                    right: 10px;
+                    left: auto;
                     z-index: 10;
                     width: 220px;
                     background-color: rgba(0, 20, 30, 0.85);
@@ -655,7 +654,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hostViewControls.classList.remove('hidden');
                 // If there are players in the loaded state, populate the dropdown.
                 if (gameEngine.state.players.length > 0) {
-                    populateFactionSelect();
+                    updateHostViewControls();
                 }
             }
         }
@@ -689,9 +688,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (hostViewSelect) {
             hostViewSelect.addEventListener('change', (e) => {
-                const mode = e.target.value;
-                gameEngine.hostView.mode = mode;
-                hostFactionSelect.classList.toggle('hidden', mode !== 'faction');
+                updateHostViewControls();
             });
         }
 
@@ -718,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const numAI = parseInt(document.getElementById('ai-opponents').value, 10);
             const aiPlayers = [];
             for (let i = 0; i < numAI; i++) {
-                aiPlayers.push({ id: `AI_${i + 1}`, team: 'COVENANT', isAI: true });
+                aiPlayers.push({ id: `AI_${i + 1}`, team: `AI Faction ${i + 1}`, techBase: 'COVENANT', isAI: true });
             }
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
@@ -732,7 +729,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const hostViewControls = document.getElementById('host-view-controls');
             if (hostViewControls) {
                 hostViewControls.classList.remove('hidden');
-                populateFactionSelect();
+                updateHostViewControls();
             }
 
             // Close the modal

@@ -71,11 +71,7 @@ export class FleetManagerModal {
         let currentSystemId = null;
         let allInSameSystem = true;
         for (const ship of fleetShips) {
-            const shipSystem = this.engine.state.systems.find(sys => {
-                const dx = sys.x - ship.x;
-                const dy = sys.y - ship.y;
-                return (dx * dx + dy * dy) <= (sys.r * sys.r);
-            });
+            const shipSystem = this.engine.spatialService.getCurrentSystem(ship);
 
             if (!shipSystem) {
                 allInSameSystem = false;
@@ -127,11 +123,7 @@ export class FleetManagerModal {
         // Group unassigned ships by system
         const unassignedShips = myShips.filter(s => !s.fleetId);
         const shipsBySystem = unassignedShips.reduce((acc, ship) => {
-            const system = systems.find(sys => {
-                const dx = sys.x - ship.x;
-                const dy = sys.y - ship.y;
-                return (dx * dx + dy * dy) <= (sys.r * sys.r);
-            });
+            const system = this.engine.spatialService.getCurrentSystem(ship);
             const location = system ? system.name : 'In Transit';
             if (!acc[location]) acc[location] = [];
             acc[location].push(ship);

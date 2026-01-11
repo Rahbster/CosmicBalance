@@ -34,6 +34,13 @@ export class MovementService {
 
             this._updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed);
         });
+
+        // Handle Orbiting for Idle Ships
+        this.engine.state.ships.forEach(ship => {
+            if (ship.moveState === SHIP_STATE.IDLE && ship.currentSystemId && !ship.isStation && !ship.targetId && !ship.arrivalPoint && !ship.patrolSystemId) {
+                this._updateShipOrbit(ship, dt);
+            }
+        });
     }
 
     _updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed) {
@@ -47,7 +54,8 @@ export class MovementService {
                 const dy = target.y - ship.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
-                const effectiveRadius = system ? this.engine.getSystemEffectiveRadius(system) : 10;
+                // Use effective radius for systems to match location detection logic
+                const effectiveRadius = system ? this.engine.spatialService.getSystemEffectiveRadius(system) : 10;
                 // Increased buffer to 15 to ensure we are well inside the system radius
                 const arrivalRadius = system ? Math.min(effectiveRadius - 15, system.r + 50) : 10;
 
@@ -110,7 +118,7 @@ export class MovementService {
                             let wasDestroyed = false;
                             if (ship.type === 'Scout' && arrivedAtSystem.visibility[ship.owner] !== 'explored') {
                                 // COUNTER-SCOUTING LOGIC
-                                const friendlyShipsInSystem = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine._isShipInSystem(s, arrivedAtSystem));
+                                const friendlyShipsInSystem = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, arrivedAtSystem));
                                 let detectionChance = 0;
                                 friendlyShipsInSystem.forEach(friendlyShip => {
                                     if (friendlyShip.patrolSystemId === arrivedAtSystem.id && friendlyShip.type === 'Scout') {
@@ -130,7 +138,7 @@ export class MovementService {
 
                                 if (!wasDestroyed) {
                                     arrivedAtSystem.visibility[ship.owner] = 'scouted';
-                                    const enemyShips = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine._isShipInSystem(s, arrivedAtSystem));
+                                    const enemyShips = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, arrivedAtSystem));
                                     let reportedCount = enemyShips.length;
                                     let reportedTypes = enemyShips.map(s => s.type);
                                     if (detectionChance > 0) {
@@ -167,11 +175,7 @@ export class MovementService {
                             // Standard visibility reveal for any ship
                             if (!arrivedAtSystem.visibility[ship.owner] || arrivedAtSystem.visibility[ship.owner] !== 'explored') {
                                 arrivedAtSystem.visibility[ship.owner] = 'explored';
-                                arrivedAtSystem.links.forEach(link => {
-                                    const neighbor = this.engine.state.systems.find(p => p.id === link.targetId);
-                                    if (neighbor && !neighbor.visibility[ship.owner]) neighbor.visibility[ship.owner] = 'scouted';
-                                });
-                                this.engine.broadcast({ type: 'GAME_REVEAL', systemId: arrivedAtSystem.id, playerId: ship.owner, visibility: 'explored', neighbors: arrivedAtSystem.links.map(l => l.targetId) });
+                                this.engine.broadcast({ type: 'GAME_REVEAL', systemId: arrivedAtSystem.id, playerId: ship.owner, visibility: 'explored' });
                             }
                         }
                     } else { // Arrived at debris
@@ -195,7 +199,7 @@ export class MovementService {
                     this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Ship ${ship.id} stuck with 0 sublight speed. Forcing arrival.`);
                     ship.moveState = SHIP_STATE.IDLE;
                     delete ship.arrivalPoint;
-                    this.engine.getCurrentSystem(ship);
+                    this.engine.spatialService.getCurrentSystem(ship);
                     return;
                 }
 
@@ -216,7 +220,7 @@ export class MovementService {
                 this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Ship ${ship.id} reached sublight destination.`);
                 delete ship.arrivalPoint;
                 // The getCurrentSystem logic will now assign its sticky system ID
-                this.engine.getCurrentSystem(ship);
+                    this.engine.spatialService.getCurrentSystem(ship);
             }
 
         } else if (this.engine.isHost && ship.salvageMission) {
@@ -239,7 +243,7 @@ export class MovementService {
 
             // If ship has no patrol target or has reached it, find a new one
             if (!ship.patrolTarget || (Math.abs(ship.x - ship.patrolTarget.x) < 5 && Math.abs(ship.y - ship.patrolTarget.y) < 5)) {
-                const systemRadius = this.engine.getSystemEffectiveRadius(system) * 0.8; // Patrol within 80% of the system's effective radius
+                const systemRadius = this.engine.spatialService.getSystemEffectiveRadius(system) * 0.8; // Patrol within 80% of the system's effective radius
                 const angle = Math.random() * 2 * Math.PI;
                 const distance = Math.random() * systemRadius;
                 ship.patrolTarget = {
@@ -264,16 +268,42 @@ export class MovementService {
         }
     }
 
+    _updateShipOrbit(ship, dt) {
+        const system = this.engine.state.systems.find(sys => sys.id === ship.currentSystemId);
+        if (!system) return;
+
+        const dx = ship.x - system.x;
+        const dy = ship.y - system.y;
+        const distSq = dx*dx + dy*dy;
+        
+        // Only orbit if not right on top of the star (avoid jitter)
+        if (distSq > 100) { 
+            const dist = Math.sqrt(distSq);
+            // Angular speed: slower further out. 
+            const angularSpeed = 8 / dist; // rads/sec
+            
+            const currentAngle = Math.atan2(dy, dx);
+            const dAngle = angularSpeed * (dt / 1000);
+            const newAngle = currentAngle + dAngle;
+            
+            ship.x = system.x + Math.cos(newAngle) * dist;
+            ship.y = system.y + Math.sin(newAngle) * dist;
+            
+            // Face the direction of orbit (tangent)
+            ship.heading = (newAngle * 180 / Math.PI) + 90;
+        }
+    }
+
     moveShip(shipId, targetId) {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
         if (ship) {
+            const startSystem = this.engine.spatialService.getCurrentSystem(ship);
+
             // Clear the sticky system ID when a new move order is given
             if (ship.currentSystemId) {
                 ship.lastSystemId = ship.currentSystemId; // Set last system for AI
                 delete ship.currentSystemId; // Clear it for the new move
             }
-
-            const startSystem = this.engine.getCurrentSystem(ship);
             const targetObj = this.engine.state.systems.find(s => s.id === targetId) || this.engine.state.debrisFields.find(d => d.id === targetId);
             const startName = startSystem ? startSystem.name : 'Deep Space';
             const targetName = targetObj ? (targetObj.name || 'Debris') : targetId;
@@ -281,7 +311,7 @@ export class MovementService {
             let logMsg = `[Move Request] ${ship.type} ${ship.id.substring(0,5)}: ${startName} -> ${targetName}. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)})`;
 
             if (startSystem) {
-                const startRadius = this.engine.getSystemEffectiveRadius(startSystem);
+                const startRadius = this.engine.spatialService.getSystemEffectiveRadius(startSystem);
                 logMsg += `\n  Start System: ${startSystem.name} Center: (${startSystem.x.toFixed(0)}, ${startSystem.y.toFixed(0)}) Radius: ${startRadius.toFixed(1)}`;
             }
 
@@ -289,15 +319,20 @@ export class MovementService {
             const targetSystem = this.engine.state.systems.find(s => s.id === targetId);
             if (targetSystem) {
                 const angle = Math.random() * 2 * Math.PI;
-                const effRadius = this.engine.getSystemEffectiveRadius(targetSystem);
-                const safeRadius = effRadius > 0 ? effRadius : 50;
-                const distance = Math.random() * safeRadius * 0.5; // Arrive somewhere in the inner 50%
+                const effRadius = this.engine.spatialService.getSystemEffectiveRadius(targetSystem);
+                
+                // Calculate arrival distance: outside the star but within the system
+                const minArrivalDist = targetSystem.r + 30; // Star radius + buffer
+                const maxArrivalDist = effRadius > 0 ? effRadius * 0.7 : 50; // 70% of system radius
+                
+                const distance = minArrivalDist + Math.random() * (Math.max(minArrivalDist + 10, maxArrivalDist) - minArrivalDist);
+
                 ship.arrivalPoint = {
                     x: targetSystem.x + Math.cos(angle) * distance,
                     y: targetSystem.y + Math.sin(angle) * distance
                 };
 
-                const targetRadius = this.engine.getSystemEffectiveRadius(targetSystem);
+                const targetRadius = this.engine.spatialService.getSystemEffectiveRadius(targetSystem);
                 logMsg += `\n  Target System: ${targetSystem.name} Center: (${targetSystem.x.toFixed(0)}, ${targetSystem.y.toFixed(0)}) Radius: ${targetRadius.toFixed(1)}`;
             } else {
                 // Target is not a system (e.g., debris), so there's no sublight arrival point.
@@ -339,7 +374,7 @@ export class MovementService {
         // Is the target a system?
         const targetSystem = this.engine.state.systems.find(s => s.id === targetId);
         if (targetSystem) {
-            const originSystem = this.engine.getCurrentSystem(selectedShip);
+            const originSystem = this.engine.spatialService.getCurrentSystem(selectedShip);
 
             if (originSystem) {
                 // Check for direct link first (optimization)
@@ -416,7 +451,7 @@ export class MovementService {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
         if (!ship || ship.owner !== senderId || ship.type !== 'Scout') return;
     
-        const currentSystem = this.engine.getCurrentSystem(ship); // Correctly uses the new method
+        const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
         if (!currentSystem) {
             this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Scout mission request failed: Ship ${shipId} is not in a system.`);
             return;
@@ -476,14 +511,27 @@ export class MovementService {
     handleSalvageMissionRequest({ senderId, shipId, targetDebrisId }) {
         if (!this.engine.isHost) return;
         const ship = this.engine.state.ships.find(s => s.id === shipId);
-        if (ship && ship.owner === senderId && ship.type === 'Salvager') {
-            const currentSystem = this.engine.getCurrentSystem(ship); // Correctly uses the new method
-            if (currentSystem) {
-                ship.salvageMission = { from: currentSystem.id, to: targetDebrisId };
-                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
-            }
-            this.moveShip(shipId, targetDebrisId);
+        if (!ship || ship.owner !== senderId || ship.type !== 'Salvager') return;
+
+        const targetDebris = this.engine.state.debrisFields.find(d => d.id === targetDebrisId);
+        if (!targetDebris) return;
+
+        const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
+        const debrisSystem = this.engine.spatialService.getClosestSystem(targetDebris);
+
+        // If debris is in a different system, move to that system first
+        if (currentSystem && debrisSystem && currentSystem.id !== debrisSystem.id) {
+            // This will use standard navigation logic (warp lanes) to get to the system
+            this.moveShip(shipId, debrisSystem.id);
+            return;
         }
+
+        // If in same system (or deep space), move directly to debris
+        if (currentSystem) {
+            ship.salvageMission = { from: currentSystem.id, to: targetDebrisId };
+            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
+        }
+        this.moveShip(shipId, targetDebrisId);
     }
 
     requestStopPatrol(shipId) {

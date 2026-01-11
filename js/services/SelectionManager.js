@@ -18,7 +18,7 @@ export class SelectionManager {
         this.renderSelectedUI();
     }
 
-    setSelectedLocation(locationId, openPanel = true) {
+    setSelectedLocation(locationId, openPanel = false) {
         // Force a full re-render by clearing the 'renderedFor' cache on the panel
         const container = document.getElementById('selected-planet-info');
         if (container) delete container.dataset.renderedFor;
@@ -60,7 +60,7 @@ export class SelectionManager {
         const owner = this.engine.state.players.find(p => p.id === ship.owner);
         const isOwner = owner && owner.id === this.engine.getIdentity().guid;
 
-        const currentSystem = this.engine.getCurrentSystem(ship);
+        const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
         const locationName = currentSystem ? currentSystem.name : 'Deep Space';
 
         // --- Fleet Info ---
@@ -78,7 +78,7 @@ export class SelectionManager {
             // Find ships in the same system or general vicinity
             let siblings = [];
             if (currentSystem) {
-                siblings = this.engine.state.ships.filter(s => s.owner === ship.owner && this.engine._isShipInSystem(s, currentSystem));
+                siblings = this.engine.state.ships.filter(s => s.owner === ship.owner && this.engine.spatialService.isShipInSystem(s, currentSystem));
             } else {
                 // Deep space: use all owned ships
                 siblings = this.engine.state.ships.filter(s => s.owner === ship.owner);
@@ -112,7 +112,7 @@ export class SelectionManager {
         let actionsHtml = '';
         if (isOwner) {
             if (!currentSystem) { // Ship is in Deep Space
-                const closestSystem = this.engine.getClosestSystem(ship);
+                const closestSystem = this.engine.spatialService.getClosestSystem(ship);
                 if (closestSystem) {
                     // This button uses the existing 'move-ship' action handler
                     actionsHtml += `<button data-action="move-ship" data-ship-id="${ship.id}" data-target-id="${closestSystem.id}">Move to Nearest System (${closestSystem.name})</button>`;
@@ -131,15 +131,14 @@ export class SelectionManager {
                 const viewingPlayerId = this.engine.getIdentity().guid;
                 
                 if (ship.type === 'Scout') {
-                     const unexploredNeighbors = currentSystem.links
+                     const neighborsToScout = currentSystem.links
                         .map(link => this.engine.state.systems.find(s => s.id === link.targetId))
                         .filter(neighbor => {
                             if (!neighbor) return false;
-                            const vis = neighbor.visibility[viewingPlayerId];
-                            return !vis || vis === 'unexplored' || vis === 'scouted';
+                            return neighbor.owner !== viewingPlayerId;
                         });
                     
-                    unexploredNeighbors.forEach(n => {
+                    neighborsToScout.forEach(n => {
                         actionsHtml += `<button data-action="scout" data-ship-id="${ship.id}" data-target-id="${n.id}">Scout ${n.name}</button>`;
                     });
                 }
@@ -197,6 +196,7 @@ export class SelectionManager {
             ${fleetInfoHtml}
             <p>Location: ${locationName}</p>
             <p>Hull: ${ship.hull} / ${ship.maxHull}</p>
+            ${this._renderRepairProgress(ship)}
             ${navHtml}
             <div class="context-actions" style="display: flex; gap: 10px; margin-top: 1rem; flex-wrap: wrap;">
                 ${actionsHtml}
@@ -208,6 +208,24 @@ export class SelectionManager {
 
         container.innerHTML = html;
         container.classList.remove('hidden');
+    }
+
+    _renderRepairProgress(ship) {
+        if (!ship.isRepairing) return '';
+        const total = ship.totalRepairTime || 15000;
+        const current = ship.repairTimer || 0;
+        const pct = Math.max(0, Math.min(100, 100 - (current / total * 100)));
+        return `
+            <div style="margin-bottom: 10px;">
+                <div style="display:flex; justify-content:space-between; font-size:0.8em; margin-bottom:2px;">
+                    <span>Repairing...</span>
+                    <span>${Math.ceil(current/1000)}s</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: ${pct}%"></div>
+                </div>
+            </div>
+        `;
     }
 
     _renderSelectedLocationUI() {
@@ -244,7 +262,7 @@ export class SelectionManager {
             const myStationInSystem = this.engine.state.ships.find(s => 
                 s.owner === localPlayer.id && 
                 s.isStation &&
-                this.engine._isShipInSystem(s, location)
+                this.engine.spatialService.isShipInSystem(s, location)
             );
             if (myStationInSystem) {
                 builder = myStationInSystem; // The station is the builder.
@@ -307,12 +325,12 @@ export class SelectionManager {
         let repairBayHtml = '';
         if (builderIsOwnedByMe && builder.isStation) {
             const systemContext = location.isStation 
-                ? this.engine.state.systems.find(sys => this.engine._isShipInSystem(location, sys))
+                ? this.engine.state.systems.find(sys => this.engine.spatialService.isShipInSystem(location, sys))
                 : location;
 
             if (systemContext) {
                 const dockedShips = this.engine.state.ships.filter(s =>
-                    s.owner === localPlayer.id && !s.isStation && !s.targetId && this.engine._isShipInSystem(s, systemContext)
+                    s.owner === localPlayer.id && (!s.isStation || s.id === builder.id) && !s.targetId && this.engine.spatialService.isShipInSystem(s, systemContext)
                 );
 
                 const groupedShips = {};
@@ -334,38 +352,34 @@ export class SelectionManager {
                     }
                 });
 
-                if (Object.keys(groupedShips).length > 0) {
-                    repairBayHtml = '<h4>Repair Bay</h4><ul class="repair-bay-list">';
-                    for (const shipType in groupedShips) {
-                        const groups = groupedShips[shipType];
+                let listContent = '';
+                for (const shipType in groupedShips) {
+                    const groups = groupedShips[shipType];
 
-                        if (groups.upgradable.length > 0) {
-                            const count = groups.upgradable.length;
-                            const ship = groups.upgradable[0];
-                            const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
-                            const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="upgrade">Upgrade</button>`;
-                            repairBayHtml += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
-                        }
-                        if (groups.repairable.length > 0) {
-                            const count = groups.repairable.length;
-                            const ship = groups.repairable[0];
-                            const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
-                            const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="repair">Repair</button>`;
-                            repairBayHtml += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
-                        }
-                        if (groups.servicing.length > 0) {
-                            const count = groups.servicing.length;
-                            const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
-                            repairBayHtml += `<li><span>${shipType}${badge}</span><button disabled>Servicing...</button></li>`;
-                        }
-                        if (groups.ok.length > 0) {
-                            const count = groups.ok.length;
-                            const ship = groups.ok[0];
-                            const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
-                            repairBayHtml += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span></li>`;
-                        }
+                    if (groups.upgradable.length > 0) {
+                        const count = groups.upgradable.length;
+                        const ship = groups.upgradable[0];
+                        const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
+                        const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="upgrade">Upgrade</button>`;
+                        listContent += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
                     }
-                    repairBayHtml += '</ul>';
+                    if (groups.repairable.length > 0) {
+                        const count = groups.repairable.length;
+                        const ship = groups.repairable[0];
+                        const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
+                        const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="repair">Repair</button>`;
+                        listContent += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
+                    }
+                    if (groups.servicing.length > 0) {
+                        const count = groups.servicing.length;
+                        const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
+                        listContent += `<li><span>${shipType}${badge}</span><button disabled>Servicing...</button></li>`;
+                    }
+                    // "OK" ships are hidden to declutter the Repair Bay
+                }
+
+                if (listContent) {
+                    repairBayHtml = `<h4>Repair Bay</h4><ul class="repair-bay-list">${listContent}</ul>`;
                 }
             }
         }
@@ -379,6 +393,7 @@ export class SelectionManager {
             const repairContainer = document.getElementById('repair-bay-container');
             if (repairContainer) repairContainer.innerHTML = repairBayHtml;
             
+            container.classList.remove('hidden');
             return; // We are done, no full re-render needed.
         }
 

@@ -36,7 +36,7 @@ export class EconomyService {
             const techData = this.engine.techService.getTechData();
             if (techData) {
                 player.researchedTechs.forEach(techId => {
-                    const tech = techData[player.team]?.[techId];
+                    const tech = techData[player.techBase]?.[techId];
                     tech?.effects?.forEach(effect => {
                         if (effect.type === 'ENERGY_MODIFIER') {
                             energyModifier *= effect.value;
@@ -115,7 +115,7 @@ export class EconomyService {
                         // Build complete
                         let spawnSystem = null;
                         if (location.isStation) {
-                            spawnSystem = this.engine.getCurrentSystem(location);
+                            spawnSystem = this.engine.spatialService.getCurrentSystem(location);
                         } else {
                             spawnSystem = location; // It is a system
                         }
@@ -182,6 +182,7 @@ export class EconomyService {
                     
                     delete ship.isRepairing;
                     delete ship.repairTimer;
+                    delete ship.totalRepairTime;
 
                     // Broadcast the full update
                     this.engine.broadcast({ 
@@ -203,17 +204,18 @@ export class EconomyService {
     }
 
     requestBuild(shipType, count = 1) {
-        if (!this.engine.selectedLocationId) {
+        const selectedLocationId = this.engine.selectionManager.selectedLocationId;
+        if (!selectedLocationId) {
             console.warn("No location selected to build from.");
             return;
         }
         
         const player = this.engine.getLocalPlayer();
-        let location = this.engine.state.systems.find(sys => sys.id === this.engine.selectedLocationId);
+        let location = this.engine.state.systems.find(sys => sys.id === selectedLocationId);
         let builder = location;
 
         if (!location) {
-            location = this.engine.state.ships.find(s => s.id === this.engine.selectedLocationId && s.isStation);
+            location = this.engine.state.ships.find(s => s.id === selectedLocationId && s.isStation);
             builder = location;
         }
 
@@ -221,7 +223,7 @@ export class EconomyService {
             const myStationInSystem = this.engine.state.ships.find(s => 
                 s.owner === player.id && 
                 s.isStation &&
-                this.engine._isShipInSystem(s, location)
+                this.engine.spatialService.isShipInSystem(s, location)
             );
             if (myStationInSystem) {
                 builder = myStationInSystem;
@@ -370,7 +372,7 @@ export class EconomyService {
         const player = this.engine.state.players.find(p => p.id === senderId);
         if (!player) return;
 
-        const techData = this.engine.techService.getTechData()?.[player.team];
+        const techData = this.engine.techService.getTechData()?.[player.techBase];
         const tech = techData ? techData[techId] : null;
 
         if (tech) {
@@ -407,6 +409,7 @@ export class EconomyService {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
 
         if (!player || !ship || ship.owner !== senderId || ship.isRepairing) {
+            this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `[Repair] Invalid request for ship ${shipId}. Owner: ${ship?.owner}, IsRepairing: ${ship?.isRepairing}`);
             return;
         }
 
@@ -422,9 +425,18 @@ export class EconomyService {
             
             ship.isRepairing = true;
             ship.repairTimer = 15000; // 15 seconds for any service
+            ship.totalRepairTime = 15000;
             
             this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
-            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isRepairing: true });
+            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isRepairing: true, repairTimer: 15000, totalRepairTime: 15000 });
+        } else {
+            this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `[Repair] Insufficient resources for ${shipId}. Scrap: ${player.resources.scrap}/${repairCost}, IO: ${player.resources.IO}/${upgradeCost}`);
+            this.engine.broadcast({
+                type: 'GAME_TOAST',
+                playerId: senderId,
+                message: `Insufficient resources. Need ${Math.ceil(repairCost)} Scrap, ${upgradeCost} IO.`,
+                toastType: 'error'
+            });
         }
     }
 }

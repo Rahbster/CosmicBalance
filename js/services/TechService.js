@@ -24,7 +24,7 @@ export class TechService {
         const modifiedData = { ...baseData };
         if (this.techData && ownerPlayer && ownerPlayer.researchedTechs.length > 0) {
             ownerPlayer.researchedTechs.forEach(techId => {
-                const tech = this.techData[ownerPlayer.team]?.[techId];
+                const tech = this.techData[ownerPlayer.techBase]?.[techId];
                 if (tech && tech.effects) {
                     tech.effects.forEach(effect => {
                         if (effect.target === 'ALL_SHIPS') {

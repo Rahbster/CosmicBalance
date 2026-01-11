@@ -9,18 +9,18 @@ import { EconomyService } from './services/EconomyService.js';
 import { MovementService } from './services/MovementService.js';
 import { LoggingService } from './services/LoggingService.js';
 import { TechService } from './services/TechService.js';
+import { SpatialService } from './services/SpatialService.js';
 import { CameraManager } from './services/CameraManager.js';
 import { SelectionManager } from './services/SelectionManager.js';
 import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS } from './cb_constants.js';
 
 
 export class GameEngine {
-    constructor(canvas, peerManager, getIdentity, getTeam) {
+    constructor(canvas, peerManager, profileService) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.peerManager = peerManager;
-        this.getIdentity = getIdentity;
-        this.getTeam = getTeam;
+        this.profileService = profileService;
         this.isHost = true; // Assume host role by default for local play. A peer joining will have this set to false.
         
         this.state = {
@@ -40,6 +40,7 @@ export class GameEngine {
         this.loggingService = new LoggingService();
         this.galaxyService = new GalaxyService(this.canvas, this.loggingService);
         this.camera = new CameraManager(this, this.canvas);
+        this.spatialService = new SpatialService(this);
         this.techService = new TechService(this);
         this.selectionManager = new SelectionManager(this);
         this.spriteService = new SpriteService(this.loggingService);
@@ -60,95 +61,16 @@ export class GameEngine {
         // Host-specific view settings
         this.hostView = {
             mode: 'player', // 'player', 'god', or 'faction'
-            faction: this.getTeam() // The faction to view as, defaults to own team
+            faction: this.profileService.getTeam() // The faction to view as, defaults to own team
         };
     }
 
-    _isShipInSystem(ship, system) {
-        const dx = system.x - ship.x;
-        const dy = system.y - ship.y;
-        // Using effective radius is more accurate for ships orbiting
-        return (dx * dx + dy * dy) <= (this.getSystemEffectiveRadius(system) ** 2);
+    getIdentity() {
+        return this.profileService.getIdentity();
     }
 
-    getSystemEffectiveRadius(system) {
-        // A system must have a radius `r` and a `planets` array.
-        if (!system || typeof system.r === 'undefined' || !Array.isArray(system.planets)) {
-            // If it's not a valid system object, it has no effective radius for orbiting ships.
-            // This can happen if a station is mistakenly passed.
-            return 0;
-        }
-        const r = system.r;
-        const orbitBase = r + 10;
-        const planetGap = 8;
-        const planetCount = system.planets.length; // Safe now due to check above
-        // The max distance a planet can be from the star's center
-        const maxOrbitDist = planetCount > 0 ? orbitBase + ((planetCount - 1) * planetGap) : r;
-        // Add a little buffer for the planet's own radius (3px in RenderService) and some padding
-        return maxOrbitDist + 5;
-    }
-
-    getCurrentSystem(ship) {
-        // A ship in transit is not "in" any system.
-        // A ship is considered in transit if it has a warp target.
-        // We allow arrivalPoint (sublight) to be considered in-system so ships don't appear lost while parking.
-        if (ship.targetId) {
-            return null;
-        }
-
-        // If a ship has no target, but is still marked as MOVING, its state is inconsistent.
-        // This is a defensive check to fix ships that get "stuck" in a moving state.
-        // This prevents them from being lost in the UI.
-        if (ship.moveState === SHIP_STATE.MOVING && !ship.arrivalPoint) {
-            this.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Correcting stuck 'MOVING' state for idle ship ${ship.id}`);
-            ship.moveState = SHIP_STATE.IDLE;
-        }
-    
-        // If it has a "sticky" current system and is still inside, trust that.
-        if (ship.currentSystemId) {
-            const lastSystem = this.state.systems.find(s => s.id === ship.currentSystemId);
-            if (lastSystem && this._isShipInSystem(ship, lastSystem)) {
-                return lastSystem;
-            }
-        }
-    
-        // If no sticky system or it has left the radius, find the new closest one.
-        let bestSystem = null;
-        let minDistSq = Infinity;
-    
-        for (const system of this.state.systems) {
-            if (this._isShipInSystem(ship, system)) {
-                const dx = system.x - ship.x;
-                const dy = system.y - ship.y;
-                const distSq = dx * dx + dy * dy;
-                
-                if (distSq < minDistSq) {
-                    minDistSq = distSq;
-                    bestSystem = system;
-                }
-            }
-        }
-        
-        // Update the sticky ID for next time.
-        ship.currentSystemId = bestSystem ? bestSystem.id : null;
-        return bestSystem;
-    }
-
-    getClosestSystem(entity) {
-        let closestSystem = null;
-        let minDistanceSq = Infinity;
-
-        for (const system of this.state.systems) {
-            const dx = system.x - entity.x;
-            const dy = system.y - entity.y;
-            const distSq = dx * dx + dy * dy;
-
-            if (distSq < minDistanceSq) {
-                minDistanceSq = distSq;
-                closestSystem = system;
-            }
-        }
-        return closestSystem;
+    getTeam() {
+        return this.profileService.getTeam();
     }
 
     requestSelfDestruct(shipId) {
@@ -193,7 +115,7 @@ export class GameEngine {
         if (!location) return;
 
         const systemContext = location.isStation 
-            ? this.state.systems.find(sys => this._isShipInSystem(location, sys))
+            ? this.state.systems.find(sys => this.spatialService.isShipInSystem(location, sys))
             : location;
         
         if (!systemContext) return;
@@ -201,11 +123,12 @@ export class GameEngine {
         const dockedShips = this.state.ships.filter(s => 
             s.owner === localPlayer.id && 
             s.type === shipType &&
-            !s.isStation && 
             !s.targetId && 
             !s.isRepairing && // Don't re-request for ships already being serviced
-            this._isShipInSystem(s, systemContext)
+            this.spatialService.isShipInSystem(s, systemContext)
         );
+
+        this.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.INFO, `[RepairGroup] Found ${dockedShips.length} ships for ${serviceType}. Context: ${systemContext.name || systemContext.type}`);
 
         dockedShips.forEach(ship => {
             const needsRepair = ship.hull < ship.maxHull;
@@ -239,8 +162,14 @@ export class GameEngine {
     }
 
     getViewingPlayerId() {
-        if (this.isHost && this.hostView.mode === 'faction') {
-            return this.hostView.faction; // this is a player ID
+        if (this.isHost) {
+            if (this.hostView.mode === 'player') {
+                return this.hostView.faction; // In 'player' mode, faction holds the player ID
+            }
+            // For 'faction' mode, we return the Team Name (e.g. 'UNSC')
+            if (this.hostView.mode === 'faction') {
+                return this.hostView.faction;
+            }
         }
         return this.getIdentity().guid; // Default to the local player's own ID
     }
@@ -261,7 +190,8 @@ export class GameEngine {
             { 
                 id: this.getIdentity().guid, 
                 factionName: this.getIdentity().name,
-                team: this.getTeam(), // Tech base
+                team: this.getIdentity().name, // Faction Name (Alliance)
+                techBase: this.getTeam(), // Tech Tree / Visuals
                 color: humanColor,
                 isAI: false, 
                 resources: { IO: 100, minerals: 50, food: 200, scrap: 100, energy: 50 }, 
@@ -416,16 +346,31 @@ export class GameEngine {
 
         const modifiedData = this.techService.applyTechToShipData(baseData, ownerPlayer);
         
-        // Calculate position with jitter
-        let x = position.x + (Math.random() * 40 - 20); // Reduced jitter range (+/- 20)
-        let y = position.y + (Math.random() * 40 - 20);
+        // Calculate position
+        let x = position.x;
+        let y = position.y;
 
-        // If a system context is provided, ensure the ship spawns inside it
+        if (spawnInSystem && type !== 'SpaceStation') {
+            // Spawn radially around the star to avoid clutter
+            const angle = Math.random() * 2 * Math.PI;
+            const minSpawnDist = spawnInSystem.r + 25; // Star radius + buffer
+            const maxSpawnDist = this.spatialService.getSystemEffectiveRadius(spawnInSystem) * 0.6;
+            const dist = minSpawnDist + Math.random() * (Math.max(minSpawnDist + 10, maxSpawnDist) - minSpawnDist);
+            
+            x = spawnInSystem.x + Math.cos(angle) * dist;
+            y = spawnInSystem.y + Math.sin(angle) * dist;
+        } else {
+            // Standard jitter for stations or deep space spawns
+            x += (Math.random() * 40 - 20);
+            y += (Math.random() * 40 - 20);
+        }
+
+        // If a system context is provided, ensure the ship spawns inside it (clamping max distance)
         if (spawnInSystem) {
             const dx = x - spawnInSystem.x;
             const dy = y - spawnInSystem.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const maxDist = this.getSystemEffectiveRadius(spawnInSystem) - 5; // 5px buffer
+            const maxDist = this.spatialService.getSystemEffectiveRadius(spawnInSystem) - 5; // 5px buffer
 
             if (dist > maxDist) {
                 const angle = Math.atan2(dy, dx);
@@ -440,6 +385,7 @@ export class GameEngine {
             type: type,
             color: owner.color,
             team: owner.team,
+            techBase: owner.techBase,
             x: x,
             y: y,
             hull: Math.round(modifiedData.maxHull),
@@ -470,7 +416,7 @@ export class GameEngine {
             const detectedSystem = this.state.systems.find(s => {
                 const dx = s.x - ship.x;
                 const dy = s.y - ship.y;
-                return (dx * dx + dy * dy) <= (this.getSystemEffectiveRadius(s) ** 2);
+                return (dx * dx + dy * dy) <= (this.spatialService.getSystemEffectiveRadius(s) ** 2);
             });
             if (detectedSystem) ship.currentSystemId = detectedSystem.id;
         }
@@ -621,7 +567,7 @@ export class GameEngine {
                 Object.keys(data).forEach(key => {
                     if (key !== 'type' && key !== 'shipId') {
                         if (key === 'isRepairing' && data[key] === false) {
-                            delete ship.isRepairing; delete ship.repairTimer;
+                            delete ship.isRepairing; delete ship.repairTimer; delete ship.totalRepairTime;
                         } else if (key === 'patrolSystemId' && data[key] === null) {
                             delete ship.patrolSystemId;
                             delete ship.patrolTarget;

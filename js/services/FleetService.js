@@ -21,7 +21,7 @@ export class FleetService {
         let locationId = null;
         if (shipIds.length > 0) {
             const firstShip = this.engine.state.ships.find(s => s.id === shipIds[0]);
-            const system = this.engine.getCurrentSystem(firstShip);
+            const system = this.engine.spatialService.getCurrentSystem(firstShip);
             if (system) locationId = system.id;
         }
 
