@@ -171,7 +171,7 @@ export class AIService {
                 for (const type of profile.shipPreference) {
                     const isHeavy = ['Frigate', 'Destroyer', 'Cruiser'].includes(type);
                     if (this._canAfford(resources, type) && this._hasTech(aiPlayer, type)) {
-                        if (buildShip(type, `Building Fleet (${type})`)) return;
+                        if (buildShip(type, `Building Fleet`)) return;
                         // If we failed to build a heavy ship (likely due to queue full), mark it
                         if (isHeavy) wantedHeavyButBusy = true;
                     }
@@ -376,6 +376,50 @@ export class AIService {
 
     _formFleets(aiPlayer, myShips) {
         const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
+        
+        // 1. Reinforce existing fleets
+        if (aiPlayer.fleets) {
+            aiPlayer.fleets.forEach(fleet => {
+                // Only reinforce idle fleets
+                const fleetShips = this.engine.state.ships.filter(s => fleet.shipIds.includes(s.id));
+                // If the fleet is moving, we can't easily reinforce it (ships would have to catch up)
+                if (fleetShips.some(s => s.moveState !== SHIP_STATE.IDLE)) return;
+
+                const fleetSystemId = fleet.locationId;
+                if (!fleetSystemId) return;
+                
+                const fleetSystem = this.engine.state.systems.find(s => s.id === fleetSystemId);
+                if (!fleetSystem) return;
+
+                // Find unassigned idle ships in the same system
+                const reinforcements = myShips.filter(s => 
+                    !s.fleetId && 
+                    ['Fighter', 'Frigate', 'Destroyer', 'Cruiser', 'TroopTransport'].includes(s.type) && 
+                    s.moveState === SHIP_STATE.IDLE &&
+                    this.engine.spatialService.isShipInSystem(s, fleetSystem)
+                );
+
+                if (reinforcements.length > 0) {
+                    const newShipIds = reinforcements.map(s => s.id);
+                    fleet.shipIds.push(...newShipIds);
+                    newShipIds.forEach(id => {
+                        const ship = this.engine.state.ships.find(s => s.id === id);
+                        if (ship) ship.fleetId = fleet.id;
+                    });
+                    this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.DEBUG, `AI ${aiPlayer.factionName} reinforced Fleet ${fleet.id} with ${newShipIds.length} ships.`);
+                    
+                    // Broadcast update
+                    this.engine.broadcast({ 
+                        type: 'GAME_FLEET_UPDATE', 
+                        playerId: aiPlayer.id, 
+                        fleets: aiPlayer.fleets, 
+                        updatedShips: newShipIds.map(id => ({ id, fleetId: fleet.id })) 
+                    });
+                }
+            });
+        }
+
+        // 2. Form new fleets from remaining unassigned ships
         const unassignedCombatShips = myShips.filter(s => !s.fleetId && ['Fighter', 'Frigate', 'Destroyer', 'Cruiser', 'TroopTransport'].includes(s.type) && s.moveState === SHIP_STATE.IDLE);
         
         const shipsBySystem = {};
@@ -521,7 +565,7 @@ export class AIService {
             const currentSystem = this.engine.state.systems.find(s => s.id === currentSystemId);
             
             if (!currentSystem) {
-                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Fleet ${fleet.id} has invalid locationId: ${currentSystemId}`);
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Fleet ${fleet.id} has invalid locationId: `);
                 return;
             }
 
@@ -569,11 +613,19 @@ export class AIService {
                 return fleetStrength >= (enemyStrength * coordinationBonus) * effectiveThreshold;
             });
 
-            // Sort enemies by strength (weakest first) to exploit gaps
+            // Sort enemies by Strategic Score (Value vs Strength)
             engageableEnemies.sort((a, b) => {
                 const strA = this._calculateStrength(this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, a)));
                 const strB = this._calculateStrength(this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, b)));
-                return strA - strB;
+                
+                const valA = this._getSystemStrategicValue(a);
+                const valB = this._getSystemStrategicValue(b);
+
+                // Heuristic: High value systems are worth attacking even if slightly stronger
+                const scoreA = (valA * 20) - strA;
+                const scoreB = (valB * 20) - strB;
+                
+                return scoreB - scoreA; // Descending score
             });
 
             // Decision: Expand or Attack? (Based on expansionBias)
@@ -589,14 +641,35 @@ export class AIService {
                 // Fallback to expansion if no enemies are engageable
                 target = neutralNeighbors[Math.floor(Math.random() * neutralNeighbors.length)];
             } else {
-                // 3. Patrol/Explore
-                // Filter out the system we just came from to prevent ping-ponging
+                // 3. Patrol/Defend/Explore
+                // Prioritize moving to "Frontier" systems (neighbors with enemy connections) or Hubs
                 let validNeighbors = neighbors;
                 const lastSystemId = fleetShips[0] ? fleetShips[0].lastSystemId : null;
                 if (lastSystemId && neighbors.length > 1) {
                     validNeighbors = neighbors.filter(n => n.id !== lastSystemId);
                 }
-                target = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
+
+                // Sort neighbors by strategic value to patrol important choke points/hubs
+                validNeighbors.sort((a, b) => {
+                    // Bonus if the neighbor borders an enemy (Frontier defense)
+                    const aIsFrontier = a.links.some(l => {
+                        const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
+                        return s && s.owner && s.owner !== aiPlayer.id;
+                    }) ? 50 : 0;
+                    const bIsFrontier = b.links.some(l => {
+                        const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
+                        return s && s.owner && s.owner !== aiPlayer.id;
+                    }) ? 50 : 0;
+
+                    return (this._getSystemStrategicValue(b) + bIsFrontier) - (this._getSystemStrategicValue(a) + aIsFrontier);
+                });
+
+                // Pick the best one, or random if they are all similar
+                if (validNeighbors.length > 0) {
+                    // Add some randomness to avoid all fleets clumping at the same hub
+                    const topCount = Math.min(3, validNeighbors.length);
+                    target = validNeighbors[Math.floor(Math.random() * topCount)];
+                }
             }
 
             if (target) {
@@ -618,6 +691,15 @@ export class AIService {
                 });
             }
         });
+    }
+
+    _getSystemStrategicValue(system) {
+        let value = 0;
+        // Connectivity: Hubs (more links) are critical for movement and control
+        value += system.links.length * 5;
+        // Economic Potential: More planets = more resources
+        value += (system.planets ? system.planets.length : 0) * 3;
+        return value;
     }
 
     _calculateStrength(ships) {

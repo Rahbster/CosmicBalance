@@ -119,23 +119,41 @@ export class CombatService {
                         targetPlanet.owner = capturingOwnerId;
                         targetPlanet.captureProgress = 100;
                         targetPlanet.capturingTeam = null;
-                        // If the system itself has no owner yet, or the new planet owner is now in the majority, prompt for rename
-                        if (!system.owner) {
-                            // Assign system ownership
-                            system.owner = capturingOwnerId;
-                            
-                            const ownerPlayer = this.engine.state.players.find(p => p.id === capturingOwnerId);
-                            if (ownerPlayer) {
-                                if (ownerPlayer.isAI) {
-                                    system.name = this.engine.galaxyService.generateSystemName(ownerPlayer.team);
-                                    this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
-                                } else {
-                                    this.engine.broadcast({ type: 'GAME_PROMPT_RENAME', systemId: system.id, playerId: capturingOwnerId });
+
+                        // Recalculate system ownership based on planet control
+                        const planetOwners = system.planets.map(p => p.owner).filter(id => id);
+                        const ownerCounts = planetOwners.reduce((acc, id) => { acc[id] = (acc[id] || 0) + 1; return acc; }, {});
+                        
+                        // Find the player with the most planets
+                        let topOwner = null;
+                        let maxCount = 0;
+                        for (const [ownerId, count] of Object.entries(ownerCounts)) {
+                            if (count > maxCount || (count === maxCount && ownerId === system.owner)) {
+                                maxCount = count;
+                                topOwner = ownerId;
+                            }
+                        }
+
+                        if (topOwner && topOwner !== system.owner) {
+                            const previousOwner = system.owner;
+                            system.owner = topOwner;
+
+                            // Only prompt for rename if the system was previously unowned
+                            if (!previousOwner) {
+                                const ownerPlayer = this.engine.state.players.find(p => p.id === topOwner);
+                                if (ownerPlayer) {
+                                    if (ownerPlayer.isAI) {
+                                        system.name = this.engine.galaxyService.generateSystemName(ownerPlayer.team);
+                                        this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
+                                    } else {
+                                        this.engine.broadcast({ type: 'GAME_PROMPT_RENAME', systemId: system.id, playerId: topOwner });
+                                    }
                                 }
                             }
                         }
                     }
-                    this.engine.broadcast({ type: 'GAME_PLANET_UPDATE', planetId: targetPlanet.id, owner: targetPlanet.owner, captureProgress: targetPlanet.captureProgress, capturingTeam: targetPlanet.capturingTeam });
+                    // Broadcast systemOwner as well so clients update the flag immediately
+                    this.engine.broadcast({ type: 'GAME_PLANET_UPDATE', planetId: targetPlanet.id, owner: targetPlanet.owner, captureProgress: targetPlanet.captureProgress, capturingTeam: targetPlanet.capturingTeam, systemOwner: system.owner, systemId: system.id });
                 }
             } else { // 0 or 2+ teams present (neutral or contested)
                 system.planets.forEach(planet => {
