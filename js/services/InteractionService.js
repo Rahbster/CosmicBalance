@@ -34,18 +34,18 @@ export class InteractionService {
             const worldClickRadius = Math.max(15, minScreenRadius / this.engine.camera.zoom);
             const SHIP_CLICK_RADIUS_SQ = worldClickRadius * worldClickRadius;
 
-            const viewingPlayerId = this.engine.getViewingPlayerId();
+            const viewingPlayerIds = this.engine.getViewingPlayerIds();
             const isHostGodView = this.engine.isHost && this.engine.hostView.mode === 'god';
 
             const clickedShips = this.state.ships.filter(s => {
-                if (!isHostGodView && s.owner !== viewingPlayerId) return false;
+                if (!isHostGodView && !viewingPlayerIds.includes(s.owner)) return false;
                 const dx = s.x - x;
                 const dy = s.y - y;
                 return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ;
             });
 
             const clickedSystems = this.state.systems.filter(p => {
-                const visibility = p.visibility[viewingPlayerId];
+                const visibility = viewingPlayerIds.some(id => p.visibility[id] === 'explored' || p.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
                 if (!isHostGodView && (!visibility || visibility === 'unexplored')) return false;
                 const dx = p.x - x;
                 const dy = p.y - y;
@@ -56,7 +56,7 @@ export class InteractionService {
             const clickedDebris = this.state.debrisFields.filter(d => { // NEW
                 // Visibility check for debris
                 const isVisible = isHostGodView || this.state.systems.some(sys => {
-                    const visibility = sys.visibility[viewingPlayerId];
+                    const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
                     if (!visibility || visibility === 'unexplored') return false;
                     const dx = sys.x - d.x;
                     const dy = sys.y - d.y;

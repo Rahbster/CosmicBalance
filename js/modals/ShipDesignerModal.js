@@ -66,7 +66,6 @@ function renderShipDesigner() {
             item.dataset.category = category;
             item.addEventListener('dragstart', (e) => {
                 const dragData = { id: component.id, category: category };
-                console.log('[DragStart] Setting data:', dragData);
                 // Use text/plain for broadest compatibility
                 e.dataTransfer.setData('text/plain', JSON.stringify(dragData));
             });
@@ -231,12 +230,10 @@ function loadDesignIntoDesigner(design) {
 }
 
 function handleComponentDrop(event) {
-    console.log('[Drop] handleComponentDrop fired.');
     event.preventDefault(); // Crucial: Prevent browser's default drop behavior.
     document.getElementById('ship-layout-area').classList.remove('drag-over');
 
     const rawData = event.dataTransfer.getData('text/plain');
-    console.log(`[Drop] Raw data from dataTransfer: "${rawData}"`);
 
     let data;
     try {
@@ -249,21 +246,17 @@ function handleComponentDrop(event) {
         console.error('[Drop] Drop failed: No dragged component data or no active design.');
         return;
     }
-    console.log('[Drop] Dragged data:', data);
 
     // Display a toast to confirm what was dropped
     showToast(`Dropped: ${data.category} - ${data.id}`, 'info');
 
     const component = COMPONENTS[data.category].find(c => c.id === data.id);
     if (component) {
-        console.log('[Drop] Found component in catalog:', component);
         const existingComponent = appState.soloGameState.currentDesign.components.find(c => c.id === data.id && c.category === data.category);
         if (existingComponent) {
-            console.log('[Drop] Component exists, incrementing count.');
             existingComponent.count = (existingComponent.count || 1) + 1;
             rerenderCurrentDesign(); // Just re-render, don't show arc selector
         } else {
-            console.log('[Drop] New component, adding to design.');
             const newCompInfo = { category: data.category, id: data.id, count: 1 };
             // For weapons, default to a forward arc
             if (data.category === 'weapons') {
@@ -273,7 +266,6 @@ function handleComponentDrop(event) {
             
             // If a weapon was just added, immediately prompt for arc selection for a better UX
             if (data.category === 'weapons') {
-                console.log('[Drop] Weapon added, calling setWeaponArcs().');
                 setWeaponArcs(newCompInfo); // Pass the newly created object
             } else {
                 rerenderCurrentDesign(); // If not a weapon, just re-render

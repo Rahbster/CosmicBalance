@@ -88,6 +88,7 @@ export class CombatService {
             const effectiveRadius = this.engine.spatialService.getSystemEffectiveRadius(system);
             const orbitingTransports = this.engine.state.ships.filter(ship => {
                 if (ship.type !== 'TroopTransport') return false;
+                if (ship.currentSystemId !== system.id) return false; // Must be logically in the system
                 const dx = system.x - ship.x;
                 const dy = system.y - ship.y;
                 return (dx*dx + dy*dy) <= (effectiveRadius * effectiveRadius);
@@ -120,11 +121,13 @@ export class CombatService {
                         targetPlanet.capturingTeam = null;
                         // If the system itself has no owner yet, or the new planet owner is now in the majority, prompt for rename
                         if (!system.owner) {
+                            // Assign system ownership
+                            system.owner = capturingOwnerId;
+                            
                             const ownerPlayer = this.engine.state.players.find(p => p.id === capturingOwnerId);
                             if (ownerPlayer) {
                                 if (ownerPlayer.isAI) {
-                                    const nameList = PLANET_NAMES[ownerPlayer.team] || [];
-                                    system.name = nameList[Math.floor(Math.random() * nameList.length)] || system.name;
+                                    system.name = this.engine.galaxyService.generateSystemName(ownerPlayer.team);
                                     this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
                                 } else {
                                     this.engine.broadcast({ type: 'GAME_PROMPT_RENAME', systemId: system.id, playerId: capturingOwnerId });

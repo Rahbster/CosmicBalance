@@ -39,7 +39,7 @@ export class SpriteService {
                         resolve();
                     };
                     img.onerror = () => {
-                        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to load sprite: ${path}`);
+                        if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.WARNING, `Failed to load sprite: ${path}. Using fallback shapes.`);
                         resolve(); // Don't reject, just resolve so the game can continue without this sprite
                     };
                     img.src = path;

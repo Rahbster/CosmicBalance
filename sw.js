@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cosmic-balance-v5';
+const CACHE_NAME = 'cosmic-balance-v6';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -19,6 +19,7 @@ const ASSETS_TO_CACHE = [
     './js/ui/RadialMenu.js',
     './js/modals/GameSetupModal.js',
     './js/modals/AboutModal.js',
+    './js/modals/GameStatusModal.js',
     './js/ToastManager.js',
     './js/ChatManager.js',
     './js/signaling-service.js',

@@ -260,7 +260,7 @@ export class SelectionManager {
         // If so, that station becomes the primary builder for ships.
         if (location && !location.isStation) { // It's a system
             const myStationInSystem = this.engine.state.ships.find(s => 
-                s.owner === localPlayer.id && 
+                s.owner === localPlayer?.id && 
                 s.isStation &&
                 this.engine.spatialService.isShipInSystem(s, location)
             );
@@ -269,7 +269,7 @@ export class SelectionManager {
             }
         }
 
-        const builderIsOwnedByMe = builder && builder.owner === localPlayer.id;
+        const builderIsOwnedByMe = builder && localPlayer && builder.owner === localPlayer.id;
 
         // --- Check if we can do a partial update ---
         const isAlreadyRendered = container.dataset.renderedFor === builder.id;
@@ -398,8 +398,18 @@ export class SelectionManager {
         }
 
         // --- Part 3: Full Render (if selection changed) ---
+        let nameHtml = `<h3 style="margin:0;">${location.name || builder.type}</h3>`;
+        if (builderIsOwnedByMe && !location.isStation) {
+             nameHtml = `
+                <div style="display:flex; align-items:center; gap: 8px;">
+                    <h3 style="margin:0;">${location.name}</h3>
+                    <button class="rename-btn" data-action="rename-system" data-system-id="${location.id}" title="Rename System" style="background:none; border:none; cursor:pointer; font-size:1rem;">✏️</button>
+                </div>
+             `;
+        }
+
         let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
-            <h3 style="margin:0;">${location.name || builder.type}</h3>
+            ${nameHtml}
             <button data-action="hide-panel" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.2em;" title="Hide Panel">▼</button>
         </div>`;
         html += `<div style="margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap;">

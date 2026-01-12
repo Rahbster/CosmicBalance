@@ -52,13 +52,54 @@ export class EconomyService {
             });
 
             // Apply income to player resources
-            if (income.IO > 0) { player.resources.IO += income.IO * timeFactor; hasIncome = true; }
-            if (income.minerals > 0) { player.resources.minerals = (player.resources.minerals || 0) + income.minerals * timeFactor; hasIncome = true; }
-            if (income.food > 0) { player.resources.food += income.food * timeFactor; hasIncome = true; }
-            if (income.energy > 0) { player.resources.energy = (player.resources.energy || 0) + income.energy * timeFactor; hasIncome = true; }
-            if (income.scrap > 0) { player.resources.scrap += income.scrap * timeFactor; hasIncome = true; }
+            if (income.IO > 0) { 
+                const amount = income.IO * timeFactor;
+                player.resources.IO += amount; 
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources.IO += amount;
+                hasIncome = true; 
+            }
+            if (income.minerals > 0) { 
+                const amount = income.minerals * timeFactor;
+                player.resources.minerals = (player.resources.minerals || 0) + amount; 
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources.minerals += amount;
+                hasIncome = true; 
+            }
+            if (income.food > 0) { 
+                const amount = income.food * timeFactor;
+                player.resources.food += amount; 
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources.food += amount;
+                hasIncome = true; 
+            }
+            if (income.energy > 0) { 
+                const amount = income.energy * timeFactor;
+                player.resources.energy = (player.resources.energy || 0) + amount; 
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources.energy += amount;
+                hasIncome = true; 
+            }
+            if (income.scrap > 0) { 
+                const amount = income.scrap * timeFactor;
+                player.resources.scrap += amount; 
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources.scrap += amount;
+                hasIncome = true; 
+            }
             // Broadcasting is now handled periodically
         });
+
+        // Apply infinite resources if debug mode is on
+        if (this.engine.aiDebugMode) {
+            this.engine.state.players.filter(p => p.isAI).forEach(p => {
+                p.resources.IO = Math.max(p.resources.IO, 10000);
+                p.resources.minerals = Math.max(p.resources.minerals, 10000);
+                p.resources.food = Math.max(p.resources.food, 10000);
+                p.resources.energy = Math.max(p.resources.energy, 10000);
+                p.resources.scrap = Math.max(p.resources.scrap, 10000);
+            });
+        }
 
         // Debris collection
         const collectedDebrisIds = [];
@@ -72,6 +113,8 @@ export class EconomyService {
                     const player = this.engine.state.players.find(p => p.id === ship.owner);
                     if (player) {
                         player.resources.scrap += debris.resources.scrap;
+                        player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                        player.totalResources.scrap += debris.resources.scrap;
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
                         collectedDebrisIds.push(debris.id);
                     }

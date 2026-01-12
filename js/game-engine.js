@@ -1,7 +1,7 @@
-import { GalaxyService, PLANET_NAMES, SHIP_DATA } from './services/GalaxyService.js';
+import { GalaxyService, SHIP_DATA } from './services/GalaxyService.js';
 import { InteractionService } from './services/InteractionService.js';
 import { RenderService } from './services/RenderService.js';
-import { AIService } from './services/AIService.js';
+import { AIService, AI_PROFILES } from './services/AIService.js';
 import { SpriteService } from './services/SpriteService.js';
 import { FleetService } from './services/FleetService.js';
 import { CombatService } from './services/CombatService.js';
@@ -22,18 +22,25 @@ export class GameEngine {
         this.peerManager = peerManager;
         this.profileService = profileService;
         this.isHost = true; // Assume host role by default for local play. A peer joining will have this set to false.
+        this.paused = false;
         
         this.state = {
             systems: [],
             ships: [],
             players: [],
             debrisFields: [],
+            gameTime: 0,
         };
 
         // Try to load state from localStorage
         const savedState = localStorage.getItem('cosmic_balance_gamestate');
         if (savedState) {
-            this.state = JSON.parse(savedState);
+            try {
+                this.state = JSON.parse(savedState);
+                if (this.state.gameTime === undefined) this.state.gameTime = 0;
+            } catch (e) {
+                console.error("Failed to parse saved state", e);
+            }
         } else {
         }
 
@@ -57,11 +64,26 @@ export class GameEngine {
         this.uiUpdateInterval = 500; // Update UI twice a second
         this.saveStateTimer = 0;
         this.saveStateInterval = 5000; // Save state every 5 seconds
+        this.aiDebugMode = false;
+        
+        const savedReports = localStorage.getItem('cosmic_balance_reports');
+        try {
+            this.reportHistory = savedReports ? JSON.parse(savedReports) : [];
+        } catch (e) {
+            console.error("Failed to parse saved reports", e);
+            this.reportHistory = [];
+        }
+
+        this.autoReportTimer = 0;
+        this.autoReportInterval = 60000; // 1 minute
+        this.liveReportTimer = 0;
+        this.liveReportInterval = 1000; // 1 second
         
         // Host-specific view settings
         this.hostView = {
             mode: 'player', // 'player', 'god', or 'faction'
-            faction: this.profileService.getTeam() // The faction to view as, defaults to own team
+            faction: this.profileService.getTeam(), // The faction to view as, defaults to own team
+            selectedPlayerIds: []
         };
     }
 
@@ -71,6 +93,20 @@ export class GameEngine {
 
     getTeam() {
         return this.profileService.getTeam();
+    }
+
+    get elapsedTime() {
+        return this.state.gameTime || 0;
+    }
+
+    setAIDebugMode(enabled) {
+        this.aiDebugMode = enabled;
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `AI Debug Mode (Infinite Resources): ${enabled}`);
+    }
+
+    togglePause() {
+        this.paused = !this.paused;
+        this.broadcast({ type: 'GAME_SET_PAUSE', paused: this.paused });
     }
 
     requestSelfDestruct(shipId) {
@@ -143,6 +179,7 @@ export class GameEngine {
     _saveState() {
         if (this.isHost) {
             localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
+            localStorage.setItem('cosmic_balance_reports', JSON.stringify(this.reportHistory));
             this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Game state saved to localStorage.");
         }
     }
@@ -161,17 +198,22 @@ export class GameEngine {
         return this.state.players.find(p => p.id === this.getIdentity().guid);
     }
 
-    getViewingPlayerId() {
+    getViewingPlayerIds() {
         if (this.isHost) {
-            if (this.hostView.mode === 'player') {
-                return this.hostView.faction; // In 'player' mode, faction holds the player ID
+            if (this.hostView.mode === 'god') {
+                return this.state.players.map(p => p.id);
             }
-            // For 'faction' mode, we return the Team Name (e.g. 'UNSC')
+            if (this.hostView.mode === 'filtered') {
+                return this.hostView.selectedPlayerIds || [];
+            }
+            if (this.hostView.mode === 'player') {
+                return [this.hostView.faction]; // In 'player' mode, faction holds the player ID
+            }
             if (this.hostView.mode === 'faction') {
-                return this.hostView.faction;
+                return this.state.players.filter(p => p.team === this.hostView.faction).map(p => p.id);
             }
         }
-        return this.getIdentity().guid; // Default to the local player's own ID
+        return [this.getIdentity().guid]; // Default to the local player's own ID
     }
 
     getLocalPlayerTechBase() {
@@ -179,34 +221,71 @@ export class GameEngine {
         return localPlayer ? localPlayer.team : this.getTeam();
     }
 
-    async createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate }) {
+    async createNewGame(config) {
+        const { numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
     
         this.isHost = true;
+        this.state.gameConfig = config;
 
         const availableColors = [...FACTION_COLORS];
-        const humanColor = availableColors.splice(0, 1)[0];
+        
+        this.state.players = [];
+        this.state.gameTime = 0;
 
-        this.state.players = [
-            { 
+        if (!isSpectator) {
+            const humanColor = availableColors.splice(0, 1)[0];
+            this.state.players.push({ 
                 id: this.getIdentity().guid, 
                 factionName: this.getIdentity().name,
                 team: this.getIdentity().name, // Faction Name (Alliance)
                 techBase: this.getTeam(), // Tech Tree / Visuals
                 color: humanColor,
                 isAI: false, 
-                resources: { IO: 100, minerals: 50, food: 200, scrap: 100, energy: 50 }, 
+                resources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 }, 
+                totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
                 researchedTechs: [], 
                 researchQueue: [], 
                 fleets: [] 
-            },
-            // Add resources to AI players
-            ...aiPlayers.map((p, i) => ({ ...p, factionName: `AI Overlord ${i + 1}`, color: availableColors.splice(0, 1)[0], resources: { IO: 100, minerals: 50, food: 200, scrap: 100, energy: 50 }, researchedTechs: [], researchQueue: [], fleets: [] }))
-        ];
-        this.state.systems = this.galaxyService.generateGalaxyMap(numSystems, twoWayDensity, oneWayDensity);
+            });
+            this.hostView.mode = 'player';
+            this.hostView.selectedPlayerIds = [this.getIdentity().guid];
+        } else {
+            this.hostView.mode = 'god';
+            this.hostView.selectedPlayerIds = [];
+        }
+
+        // Add resources to AI players
+        const profileKeys = Object.keys(AI_PROFILES);
+        
+        // Shuffle profiles to ensure random matchups, especially for symmetric maps
+        for (let i = profileKeys.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [profileKeys[i], profileKeys[j]] = [profileKeys[j], profileKeys[i]];
+        }
+
+        this.state.players.push(...aiPlayers.map((p, i) => {
+            const profileKey = profileKeys[i % profileKeys.length];
+            const profileName = AI_PROFILES[profileKey].name;
+            return { 
+                ...p, 
+                factionName: `${profileName} AI ${i + 1}`, 
+                aiProfile: profileKey,
+                color: availableColors.splice(0, 1)[0], 
+                resources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 }, 
+                totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
+                researchedTechs: [], 
+                researchQueue: [], 
+                fleets: [] 
+            };
+        }));
+
+        this.state.systems = this.galaxyService.generateGalaxyMap(numSystems, twoWayDensity, oneWayDensity, isSymmetric, this.state.players.length);
         this.state.ships = [];
         this.state.debrisFields = [];
         this.selectedLocationId = null;
         this.selectedShipId = null;
+        this.reportHistory = [];
+        localStorage.removeItem('cosmic_balance_reports');
         this.state.settings = {
             resourceRate: resourceRate || 1.0,
             shipSpeedRate: shipSpeedRate || 1.0
@@ -217,11 +296,26 @@ export class GameEngine {
 
         // --- Assign Home Systems ---
         const availableSystems = [...this.state.systems];
-        this.state.players.forEach(player => {
+        
+        // If symmetric, we assume the galaxy service returned systems in slices.
+        // Player i gets the first system of Slice i.
+        const stride = isSymmetric ? Math.floor(this.state.systems.length / this.state.players.length) : 0;
+
+        this.state.players.forEach((player, i) => {
             if (availableSystems.length > 0) {
-                // 1. Pick a random system
-                const index = Math.floor(Math.random() * availableSystems.length);
-                const homeSystem = availableSystems.splice(index, 1)[0];
+                let homeSystem;
+                
+                if (isSymmetric) {
+                    // Deterministic assignment for symmetry
+                    // The systems array is generated slice by slice.
+                    homeSystem = this.state.systems[i * stride];
+                } else {
+                    // 1. Pick a random system
+                    const index = Math.floor(Math.random() * availableSystems.length);
+                    homeSystem = availableSystems.splice(index, 1)[0];
+                }
+
+                if (!homeSystem) return;
 
                 // 2. Assign ownership
                 homeSystem.owner = player.id; // Owner is now player ID
@@ -231,6 +325,7 @@ export class GameEngine {
                     const homePlanet = homeSystem.planets[0];
                     homePlanet.owner = player.id;
                     homePlanet.captureProgress = 100;
+                    homePlanet.type = 'Terran'; // Force fair start
                 }
 
                 // 3. Reveal system to owner
@@ -247,16 +342,33 @@ export class GameEngine {
 
         // Center the camera on the local player's home system
         const localPlayer = this.getLocalPlayer();
-        const homeSystem = this.state.systems.find(s => s.owner === localPlayer.id);
-        if (homeSystem) {
-            this.camera.centerOn(homeSystem.x, homeSystem.y, 1);
+        if (localPlayer) {
+            const homeSystem = this.state.systems.find(s => s.owner === localPlayer.id);
+            if (homeSystem) {
+                this.camera.centerOn(homeSystem.x, homeSystem.y, 1);
+            }
+        } else if (this.state.systems.length > 0) {
+            // Spectator mode: Center on the first system
+            const firstSystem = this.state.systems[0];
+            this.camera.centerOn(firstSystem.x, firstSystem.y, 0.5);
         }
 
         return this.state;
     }
 
+    async restartGame(config) {
+        if (config || this.state.gameConfig) {
+            await this.createNewGame(config || this.state.gameConfig);
+            this._saveState();
+            window.location.reload();
+        } else {
+            this.resetGame();
+        }
+    }
+
     resetGame() {
         localStorage.removeItem('cosmic_balance_gamestate');
+        localStorage.removeItem('cosmic_balance_reports');
         window.location.reload();
     }
 
@@ -433,6 +545,7 @@ export class GameEngine {
             this.spriteService.loadSprites(),
             this.techService.loadTechData()
         ]);
+        this.lastTime = performance.now();
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -443,15 +556,25 @@ export class GameEngine {
     }
 
     loop(timestamp) {
-        const dt = timestamp - this.lastTime;
+        const dt = Math.max(0, timestamp - this.lastTime);
         this.lastTime = timestamp;
-        
+
+        // Simulation delta time. If paused, simulation stops.
+        const simDt = this.paused ? 0 : dt;
+
         if (this.isHost) {
-            this.runHostLogic(dt);
-            this.runAI(dt);
+            this.state.gameTime = (this.state.gameTime || 0) + simDt;
+        }
+        
+        if (this.isHost && !this.paused) {
+            this.runHostLogic(simDt);
+            this.runAI(simDt);
         }
 
-        this.update(dt);
+        if (!this.paused) {
+            this.update(simDt);
+        }
+
         this.camera.updateAnimation(timestamp);
         this.draw();
 
@@ -466,13 +589,80 @@ export class GameEngine {
         }
 
         // Throttle saving the game state
-        this.saveStateTimer += dt;
-        if (this.isHost && this.saveStateTimer >= this.saveStateInterval) {
-            this.saveStateTimer = 0;
-            this._saveState();
+        if (this.isHost && !this.paused) {
+            this.saveStateTimer += simDt;
+            if (this.saveStateTimer >= this.saveStateInterval) {
+                this.saveStateTimer = 0;
+                this._saveState();
+            }
+
+            // Auto-generate AI reports (History Snapshot)
+            this.autoReportTimer += simDt;
+            if (this.autoReportTimer >= this.autoReportInterval) {
+                this.autoReportTimer = 0;
+                const report = this.generateAIReport();
+                this.reportHistory.push(report);
+                this.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Auto-generated AI Report #${this.reportHistory.length}`);
+            }
+
+            // Live AI Report (UI Update)
+            this.liveReportTimer += simDt;
+            if (this.liveReportTimer >= this.liveReportInterval) {
+                this.liveReportTimer = 0;
+                const report = this.generateAIReport();
+                window.dispatchEvent(new CustomEvent('ai-report-generated', { detail: { report, history: this.reportHistory } }));
+            }
         }
         
         requestAnimationFrame((t) => this.loop(t));
+    }
+
+    generateAIReport() {
+        const report = {
+            timestamp: new Date().toISOString(),
+            gameTimeSeconds: Math.floor((this.state.gameTime || 0) / 1000),
+            elapsedTime: this.state.gameTime || 0,
+            players: []
+        };
+
+        this.state.players.forEach(p => {
+            const myShips = this.state.ships.filter(s => s.owner === p.id);
+            const shipCounts = {};
+            myShips.forEach(s => {
+                shipCounts[s.type] = (shipCounts[s.type] || 0) + 1;
+            });
+
+            const mySystems = this.state.systems.filter(s => s.owner === p.id);
+            const myPlanets = this.state.systems.flatMap(sys => sys.planets.filter(pl => pl.owner === p.id));
+            
+            const planetTypeCounts = {};
+            myPlanets.forEach(pl => {
+                planetTypeCounts[pl.type] = (planetTypeCounts[pl.type] || 0) + 1;
+            });
+
+            const totalRes = p.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+
+            report.players.push({
+                id: p.id,
+                factionName: p.factionName,
+                aiProfile: p.isAI ? (p.aiProfile || 'Unknown') : 'Human',
+                aiGoal: p.isAI ? (p.aiGoal || 'Unknown') : 'Player Control',
+                resources: { ...p.resources },
+                totalResources: { ...totalRes },
+                stats: {
+                    systemsControlled: mySystems.length,
+                    planetsControlled: myPlanets.length,
+                    planetTypes: planetTypeCounts,
+                    totalShips: myShips.length,
+                    shipComposition: shipCounts,
+                    techsResearched: p.researchedTechs.length,
+                    fleetsFormed: p.fleets ? p.fleets.length : 0
+                },
+                techs: p.researchedTechs
+            });
+        });
+
+        return report;
     }
 
     runHostLogic(dt) {
@@ -547,6 +737,11 @@ export class GameEngine {
     handlePeerMessage(data) {
         if (data.type === 'GAME_SPAWN') {
             this.state.ships.push(data.ship);
+        } else if (data.type === 'GAME_SET_PAUSE') {
+            this.paused = data.paused;
+            if (window.toastManager) {
+                window.toastManager.show(this.paused ? "Game Paused" : "Game Resumed", 'info');
+            }
         } else if (data.type === 'GAME_MOVE') {
             const ship = this.state.ships.find(s => s.id === data.shipId);
             if (ship) {
@@ -598,10 +793,6 @@ export class GameEngine {
                 if (data.researchQueue) player.researchQueue = data.researchQueue;
                 if (data.update) {
                     Object.assign(player, data.update);
-                    // If the updated player is the local player, update the UI
-                    if (player.id === getIdentity().guid) {
-                        setVal('faction-name-input', player.factionName);
-                    }
                 }
             }
         } else if (data.type === 'GAME_REQUEST_BUILD') {

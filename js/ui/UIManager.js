@@ -3,7 +3,8 @@ import { RESOURCE_TYPES, FACTION_COLORS } from '../cb_constants.js';
 export class UIManager {
     constructor(gameEngine) {
         this.gameEngine = gameEngine;
-        this.colorPicker = document.getElementById('faction-color-picker');
+        this.colorPicker = document.getElementById('faction-color-picker'); // This element is bound in app.js
+        this.systemListContainer = document.getElementById('system-list'); // Cache this element
     }
 
     setTheme(theme) {
@@ -19,15 +20,16 @@ export class UIManager {
         if (num === undefined || num === null) return '0';
         const n = Math.floor(num);
         if (n < 1000) return n.toString();
-        if (n < 1000000) return (n / 1000).toFixed(2) + 'K';
-        if (n < 1000000000) return (n / 1000000).toFixed(2) + 'M';
-        return (n / 1000000000).toFixed(2) + 'B';
+        if (n < 1000000) return parseFloat((n / 1000).toFixed(2)) + 'K';
+        if (n < 1000000000) return parseFloat((n / 1000000).toFixed(2)) + 'M';
+        return parseFloat((n / 1000000000).toFixed(2)) + 'B';
     }
 
     renderResourceHeader() {
         const container = document.getElementById('resource-list');
         if (!container) return;
-        container.innerHTML = RESOURCE_TYPES.map(res => `
+        
+        let html = RESOURCE_TYPES.map(res => `
             <span title="${res.title}">
                 <span class="res-label">${res.label}</span>
                 <span class="res-value-group">
@@ -36,6 +38,12 @@ export class UIManager {
                 </span>
             </span>
         `).join('');
+
+        // Add Ship Summary Section
+        html += `<div class="resource-separator" style="width: 100%; height: 1px; background: rgba(0, 242, 255, 0.3); margin: 5px 0;"></div>`;
+        html += `<div id="ship-summary-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 2px 8px; width: 100%;"></div>`;
+
+        container.innerHTML = html;
     }
 
     updateHeaderUI() {
@@ -43,26 +51,37 @@ export class UIManager {
         
         let displayResources = { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
         let showUI = true;
+        let viewingPlayerIds = [];
 
         if (this.gameEngine.isHost) {
-            const { mode, faction: target } = this.gameEngine.hostView;
+            const { mode, faction: target, selectedPlayerIds } = this.gameEngine.hostView;
+            let playersToSum = [];
+
             if (mode === 'god') {
-                this.gameEngine.state.players.forEach(p => {
-                    Object.keys(displayResources).forEach(k => displayResources[k] += (p.resources[k] || 0));
-                });
+                playersToSum = this.gameEngine.state.players;
+            } else if (mode === 'filtered') {
+                playersToSum = this.gameEngine.state.players.filter(p => selectedPlayerIds.includes(p.id));
             } else if (mode === 'faction') {
-                this.gameEngine.state.players.filter(p => p.team === target).forEach(p => {
+                playersToSum = this.gameEngine.state.players.filter(p => p.team === target);
+            } else {
+                const p = this.gameEngine.state.players.find(pl => pl.id === target) || this.gameEngine.getLocalPlayer();
+                if (p) playersToSum = [p];
+            }
+
+            if (playersToSum.length > 0) {
+                playersToSum.forEach(p => {
                     Object.keys(displayResources).forEach(k => displayResources[k] += (p.resources[k] || 0));
                 });
-            } else {
-                // Player view
-                const p = this.gameEngine.state.players.find(pl => pl.id === target) || this.gameEngine.getLocalPlayer();
-                if (p) displayResources = p.resources;
-                else showUI = false;
+                viewingPlayerIds = playersToSum.map(p => p.id);
+            } else if (mode !== 'god') {
+                showUI = false;
             }
         } else {
             const localPlayer = this.gameEngine.getLocalPlayer();
-            if (localPlayer) displayResources = localPlayer.resources;
+            if (localPlayer) {
+                displayResources = localPlayer.resources;
+                viewingPlayerIds = [localPlayer.id];
+            }
             else showUI = false;
         }
 
@@ -85,18 +104,90 @@ export class UIManager {
         RESOURCE_TYPES.forEach(res => {
             updateResource(res.domId, displayResources[res.key], res.threshold || 0);
         });
+
+        // Update Ship Summary
+        const shipSummaryList = document.getElementById('ship-summary-list');
+        if (shipSummaryList) {
+            const shipCounts = {};
+            const relevantShips = this.gameEngine.state.ships.filter(s => viewingPlayerIds.includes(s.owner) && s.hull > 0);
+            
+            relevantShips.forEach(s => {
+                let type = s.type;
+                if (type === 'TroopTransport') type = 'Transport';
+                if (type === 'SpaceStation') type = 'Station';
+                shipCounts[type] = (shipCounts[type] || 0) + 1;
+            });
+
+            const sortedTypes = Object.keys(shipCounts).sort();
+            
+            if (sortedTypes.length > 0) {
+                shipSummaryList.innerHTML = sortedTypes.map(type => {
+                    return `<span style="font-size: 0.75rem; white-space: nowrap; display: flex; justify-content: space-between;" title="${type}"><span>${type}:</span> <strong style="color: #00f2ff;">${this.formatNumber(shipCounts[type])}</strong></span>`;
+                }).join('');
+            } else {
+                shipSummaryList.innerHTML = '<span style="font-size: 0.75rem; color: #888;">No Ships</span>';
+            }
+        }
         
         // Update System Counts by Participant
-        const systemList = document.getElementById('system-list');
-        if (systemList) {
-            systemList.innerHTML = '';
+        if (this.systemListContainer) {
+            this.systemListContainer.innerHTML = '';
             this.gameEngine.state.players.forEach(p => {
                 const count = this.gameEngine.state.systems.filter(s => s.owner === p.id).length;
                 
                 const span = document.createElement('span');
                 span.title = `${p.factionName} Controlled Systems`;
                 span.style.setProperty('--player-color', p.color);
-                span.style.cursor = 'help';
+                
+                if (this.gameEngine.isHost) {
+                    span.style.cursor = 'pointer';
+                    span.onclick = (e) => {
+                        e.stopPropagation();
+                        let mode = this.gameEngine.hostView.mode;
+                        let selected = this.gameEngine.hostView.selectedPlayerIds || [];
+
+                        if (mode === 'god') {
+                            // Transition from God to Filtered (Single Select)
+                            this.gameEngine.hostView.mode = 'filtered';
+                            this.gameEngine.hostView.selectedPlayerIds = [p.id];
+                        } else {
+                            // Toggle selection
+                            const currentIds = this.gameEngine.getViewingPlayerIds();
+                            if (currentIds.includes(p.id)) {
+                                selected = currentIds.filter(id => id !== p.id);
+                            } else {
+                                selected = [...currentIds, p.id];
+                            }
+                            
+                            if (selected.length === 0) {
+                                this.gameEngine.hostView.mode = 'god';
+                            } else {
+                                this.gameEngine.hostView.mode = 'filtered';
+                                this.gameEngine.hostView.selectedPlayerIds = selected;
+                            }
+                        }
+                        
+                        this.updateHeaderUI();
+                        window.dispatchEvent(new CustomEvent('host-view-changed'));
+                    };
+                } else {
+                    span.style.cursor = 'help';
+                }
+
+                const isGodMode = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
+                const isSelected = isGodMode || (this.gameEngine.isHost && this.gameEngine.getViewingPlayerIds().includes(p.id));
+
+                if (isSelected) {
+                    span.style.opacity = '1';
+                    span.style.border = `1px solid ${p.color}`;
+                    span.style.borderRadius = '4px';
+                    span.style.padding = '2px 4px';
+                    span.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                } else {
+                    span.style.opacity = '0.5';
+                    span.style.padding = '2px 4px';
+                    span.style.border = '1px solid transparent';
+                }
 
                 const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 svg.classList.add("icon-svg", "system-flag");
@@ -113,10 +204,13 @@ export class UIManager {
                 span.appendChild(label);
 
                 // Create value group
-                span.innerHTML += `<span class="res-value-group"><strong>${count}</strong></span>`;
-                span.querySelector('.res-value-group').appendChild(svg);
+                const valueGroup = document.createElement('span');
+                valueGroup.className = 'res-value-group';
+                valueGroup.innerHTML = `<strong>${count}</strong>`;
+                valueGroup.appendChild(svg);
+                span.appendChild(valueGroup);
 
-                systemList.appendChild(span);
+                this.systemListContainer.appendChild(span);
             });
         }
     }

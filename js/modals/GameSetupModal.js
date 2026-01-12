@@ -35,6 +35,14 @@ export function showGameSetupModal() {
                         <input type="range" id="one-way-density" min="0" max="50" value="3" style="flex-grow: 1;">
                         <span id="one-way-density-value">3%</span>
                     </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 5px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px;">
+                        <input type="checkbox" id="symmetric-map" style="width: 20px; height: 20px;">
+                        <label for="symmetric-map" style="cursor: pointer;">Symmetric Map (Fair Start)</label>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px;">
+                        <input type="checkbox" id="spectator-mode" style="width: 20px; height: 20px;">
+                        <label for="spectator-mode" style="cursor: pointer;">Spectator Mode (AI vs AI)</label>
+                    </div>
                     <button id="btn-reset-game" style="background-color: var(--error-red); margin-top: 1rem;">Reset Saved Game</button>
                     <button id="btn-create-game">Create Game</button>
                     <p><small>Only one player should create the game. This player will be the host.</small></p>
@@ -77,6 +85,37 @@ export function showGameSetupModal() {
     if (resourceRateSlider) resourceRateSlider.addEventListener('input', () => resourceRateValue.textContent = `${resourceRateSlider.value}%`);
     if (shipSpeedSlider) shipSpeedSlider.addEventListener('input', () => shipSpeedValue.textContent = `${shipSpeedSlider.value}%`);
 
-    // 5. Show the modal
+    // 5. Load saved settings
+    const savedConfig = localStorage.getItem('cosmic_balance_setup_config');
+    if (savedConfig) {
+        try {
+            const config = JSON.parse(savedConfig);
+            if (config.numSystems) document.getElementById('galaxy-size').value = config.numSystems;
+            if (config.numAI !== undefined) document.getElementById('ai-opponents').value = config.numAI;
+            
+            if (config.resourceRateVal) {
+                document.getElementById('resource-rate').value = config.resourceRateVal;
+                if (resourceRateValue) resourceRateValue.textContent = `${config.resourceRateVal}%`;
+            }
+            if (config.shipSpeedRateVal) {
+                document.getElementById('ship-speed-rate').value = config.shipSpeedRateVal;
+                if (shipSpeedValue) shipSpeedValue.textContent = `${config.shipSpeedRateVal}%`;
+            }
+            if (config.twoWayDensity) {
+                document.getElementById('two-way-density').value = config.twoWayDensity;
+                if (twoWayValue) twoWayValue.textContent = `${config.twoWayDensity}%`;
+            }
+            if (config.oneWayDensity) {
+                document.getElementById('one-way-density').value = config.oneWayDensity;
+                if (oneWayValue) oneWayValue.textContent = `${config.oneWayDensity}%`;
+            }
+            if (config.isSymmetric !== undefined) document.getElementById('symmetric-map').checked = config.isSymmetric;
+            if (config.isSpectator !== undefined) document.getElementById('spectator-mode').checked = config.isSpectator;
+        } catch (e) {
+            console.error("Failed to load saved setup config", e);
+        }
+    }
+
+    // 6. Show the modal
     modal.classList.remove('hidden');
 }

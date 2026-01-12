@@ -23,30 +23,26 @@ export class RenderService {
         ctx.scale(zoom, zoom);
 
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
-        const viewingId = this.gameEngine.getViewingPlayerId();
+        const viewingIds = this.gameEngine.getViewingPlayerIds();
         
         // Helper to check visibility based on viewing mode (Player ID or Faction Name)
         const checkVisibility = (system) => {
             if (isHostGodView) return 'explored';
-            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                // Check if ANY player in this faction has visibility
-                const factionPlayers = this.gameEngine.state.players.filter(p => p.team === viewingId);
-                const bestVis = factionPlayers.reduce((acc, p) => {
-                    const v = system.visibility[p.id];
-                    if (v === 'explored') return 'explored';
-                    if (v === 'scouted' && acc !== 'explored') return 'scouted';
-                    return acc;
-                }, 'unexplored');
-                return bestVis;
+            // Check if ANY viewing player has visibility
+            for (const id of viewingIds) {
+                if (system.visibility[id] === 'explored') return 'explored';
             }
-            return system.visibility[viewingId];
+            for (const id of viewingIds) {
+                if (system.visibility[id] === 'scouted') return 'scouted';
+            }
+            return 'unexplored';
         };
 
         // 0. Draw Fog of War on top of the game world
-        this.drawFogOfWar(ctx, state, viewingId, isHostGodView, checkVisibility);
+        this.drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility);
 
         // 1. Draw Links (Warp lanes)
-        this.drawLinks(ctx, state.systems, viewingId, isHostGodView, checkVisibility);
+        this.drawLinks(ctx, state.systems, viewingIds, isHostGodView, checkVisibility);
 
         // 2. Draw Systems (Stars and Planets)
         state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
@@ -70,26 +66,16 @@ export class RenderService {
         });
 
         // 4. Draw Fleet Movement Paths
-        this.drawFleetMovementPaths(ctx, state, viewingId, isHostGodView);
+        this.drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView);
 
         // Determine which systems are visible to the player (has ships present or owns the system)
         const visibleSystemIds = new Set();
         if (!isHostGodView) {
             state.systems.forEach(s => {
-                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
-                    if (owner && owner.team === viewingId) visibleSystemIds.add(s.id);
-                } else {
-                    if (s.owner === viewingId) visibleSystemIds.add(s.id);
-                }
+                if (viewingIds.includes(s.owner)) visibleSystemIds.add(s.id);
             });
             state.ships.forEach(s => {
-                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
-                    if (owner && owner.team === viewingId && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
-                } else {
-                    if (s.owner === viewingId && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
-                }
+                if (viewingIds.includes(s.owner) && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
             });
         }
 
@@ -97,13 +83,7 @@ export class RenderService {
         const visibleShips = isHostGodView 
             ? state.ships 
             : state.ships.filter(ship => {
-                let isOwner = false;
-                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                    const owner = this.gameEngine.state.players.find(p => p.id === ship.owner);
-                    isOwner = owner && owner.team === viewingId;
-                } else {
-                    isOwner = ship.owner === viewingId;
-                }
+                const isOwner = viewingIds.includes(ship.owner);
                 return isOwner || (ship.currentSystemId && visibleSystemIds.has(ship.currentSystemId));
             });
             
@@ -114,7 +94,7 @@ export class RenderService {
         ctx.restore();
     }
 
-    drawFogOfWar(ctx, state, viewingId, isHostGodView, checkVisibility) {
+    drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility) {
         if (isHostGodView) return;
 
         ctx.save();
@@ -138,13 +118,7 @@ export class RenderService {
         };
 
         // Vision from Owned Ships
-        const myShips = state.ships.filter(s => {
-            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
-                return owner && owner.team === viewingId;
-            }
-            return s.owner === viewingId;
-        });
+        const myShips = state.ships.filter(s => viewingIds.includes(s.owner));
 
         myShips.forEach(ship => {
             // Scouts have larger sensor range
@@ -166,12 +140,9 @@ export class RenderService {
         ctx.restore(); // Restore composite operation to default ('source-over')
     }
 
-    drawFleetMovementPaths(ctx, state, viewingId, isHostGodView) {
+    drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView) {
         const playersToRender = isHostGodView ? state.players : state.players.filter(p => {
-            if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                return p.team === viewingId;
-            }
-            return p.id === viewingId;
+            return viewingIds.includes(p.id);
         });
 
         // Draw paths for fleets
@@ -222,14 +193,7 @@ export class RenderService {
         // Draw paths for individual moving ships
         const unassignedMovingShips = state.ships.filter(s => {
             let isVisible = isHostGodView;
-            if (!isVisible) {
-                if (this.gameEngine.hostView.mode === 'faction' && this.gameEngine.isHost) {
-                    const owner = this.gameEngine.state.players.find(p => p.id === s.owner);
-                    isVisible = owner && owner.team === viewingId;
-                } else {
-                    isVisible = s.owner === viewingId;
-                }
-            }
+            if (!isVisible) isVisible = viewingIds.includes(s.owner);
             return isVisible && s.targetId && !s.fleetId && !s.isStation;
         });
 
@@ -252,7 +216,7 @@ export class RenderService {
         });
     }
 
-    drawLinks(ctx, systems, viewingId, isHostGodView, checkVisibility) {
+    drawLinks(ctx, systems, viewingIds, isHostGodView, checkVisibility) {
         ctx.lineWidth = 2;
         const drawn = new Set();
         
@@ -377,6 +341,40 @@ export class RenderService {
                 this.drawPlanetMini(ctx, planet, px, py, 3);
             });
         }
+
+        // Draw AI Goal in God View
+        if (isHostGodView && system.owner) {
+            const owner = this.gameEngine.state.players.find(p => p.id === system.owner);
+            if (owner && owner.isAI && owner.aiGoal) {
+                // Only draw on systems with a station to reduce clutter and identify main bases
+                const hasStation = this.gameEngine.state.ships.some(s => s.owner === system.owner && s.isStation && this.gameEngine.spatialService.isShipInSystem(s, system));
+                
+                if (hasStation) {
+                    ctx.fillStyle = owner.color || '#FFFFFF';
+                    const fontSize = Math.max(10, 10 / this.gameEngine.camera.zoom);
+                    ctx.font = `bold ${fontSize}px monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.shadowColor = 'black';
+                    ctx.shadowBlur = 4;
+                    // Draw below the star
+                    ctx.fillText(`[${owner.aiGoal}]`, system.x, system.y + r + (25 / this.gameEngine.camera.zoom));
+
+                    // Draw Research Project
+                    if (owner.researchQueue && owner.researchQueue.length > 0) {
+                        const techId = owner.researchQueue[0].techId;
+                        const techData = this.gameEngine.techService.getTechData();
+                        if (techData) {
+                            const tech = techData[owner.techBase]?.[techId];
+                            if (tech) {
+                                ctx.font = `italic ${fontSize * 0.8}px monospace`;
+                                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                                ctx.fillText(`Rsrch: ${tech.name}`, system.x, system.y + r + (40 / this.gameEngine.camera.zoom));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     drawFlag(ctx, x, y, color, scale) {
@@ -441,10 +439,7 @@ export class RenderService {
     drawDebris(ctx, debris) {
         const scrapAmount = debris.resources?.scrap || 0;
         
-        // "high level of opacity when not much debris is present and a low level of opacity a large amount of debris is present"
-        // Small amount (e.g. 50) -> High Opacity (e.g. 0.8)
-        // Large amount (e.g. 500) -> Low Opacity (e.g. 0.2)
-        const opacity = Math.max(0.2, 0.9 - (scrapAmount / 600));
+        const opacity = 0.25;
         const radius = 10 + (scrapAmount / 20); // Scale size with amount
 
         const grad = ctx.createRadialGradient(debris.x, debris.y, radius * 0.2, debris.x, debris.y, radius);

@@ -59,6 +59,30 @@
       "effects": [
         { "target": "ALL_SHIPS", "type": "ENERGY_MODIFIER", "value": 1.2 }
       ]
+    },
+    "frigate_construction": {
+      "name": "Frigate Construction",
+      "description": "Unlocks the ability to build Frigate class warships at Space Stations.",
+      "cost": { "IO": 500, "minerals": 200 },
+      "researchTime": 60000,
+      "dependencies": [],
+      "effects": []
+    },
+    "destroyer_construction": {
+      "name": "Destroyer Construction",
+      "description": "Unlocks the ability to build Destroyer class warships at Space Stations.",
+      "cost": { "IO": 1500, "minerals": 600 },
+      "researchTime": 120000,
+      "dependencies": ["frigate_construction"],
+      "effects": []
+    },
+    "cruiser_construction": {
+      "name": "Cruiser Construction",
+      "description": "Unlocks the ability to build Cruiser class warships at Space Stations.",
+      "cost": { "IO": 4000, "minerals": 1500 },
+      "researchTime": 240000,
+      "dependencies": ["destroyer_construction"],
+      "effects": []
     }
   },
   "COVENANT": {
@@ -91,6 +115,30 @@
       "effects": [
         { "target": "ALL_SHIPS", "type": "DAMAGE_MODIFIER", "value": 1.1 }
       ]
+    },
+    "frigate_construction": {
+      "name": "Frigate Construction",
+      "description": "Unlocks the ability to build Frigate class warships at Space Stations.",
+      "cost": { "IO": 500, "minerals": 200 },
+      "researchTime": 60000,
+      "dependencies": [],
+      "effects": []
+    },
+    "destroyer_construction": {
+      "name": "Destroyer Construction",
+      "description": "Unlocks the ability to build Destroyer class warships at Space Stations.",
+      "cost": { "IO": 1500, "minerals": 600 },
+      "researchTime": 120000,
+      "dependencies": ["frigate_construction"],
+      "effects": []
+    },
+    "cruiser_construction": {
+      "name": "Cruiser Construction",
+      "description": "Unlocks the ability to build Cruiser class warships at Space Stations.",
+      "cost": { "IO": 4000, "minerals": 1500 },
+      "researchTime": 240000,
+      "dependencies": ["destroyer_construction"],
+      "effects": []
     }
   }
 }

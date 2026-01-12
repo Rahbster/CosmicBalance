@@ -13,6 +13,7 @@ import { LoggingModal } from './modals/LoggingModal.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 import { UIManager } from './ui/UIManager.js';
 import { ProfileService } from './services/ProfileService.js';
+import { GameStatusModal } from './modals/GameStatusModal.js';
 
 let gameEngine = null;
 let uiManager = new UIManager(null); // Initialize early for theme
@@ -40,6 +41,7 @@ const chatManager = new ChatManager({
 let techTreeModal = null;
 let fleetManagerModal = null;
 let loggingModal = null;
+let gameStatusModal = null;
 const radialMenu = new RadialMenu();
 
 let colorPicker = null;
@@ -74,7 +76,6 @@ peerManager.onMessage((data) => {
     } else if (data.type === 'identity') {
         currentRemoteName = data.name;
         profileService.savePeer(data.guid, data.name);
-        console.log('Received data:', data);
     } else if (data.type.startsWith('GAME_')) {
         // Pass game events to engine
         if (gameEngine) gameEngine.handlePeerMessage(data);
@@ -98,13 +99,12 @@ peerManager.onMessage((data) => {
             const renameModal = document.getElementById('rename-planet-modal');
             renameModal.classList.remove('hidden');
             const confirmBtn = document.getElementById('btn-confirm-rename');
-            confirmBtn.onclick = () => confirmPlanetRename(data.systemId);
+            confirmBtn.onclick = () => confirmRename(data.systemId, data.planetId);
         }
     }
 });
 
 peerManager.onStatusChange((status) => {
-    console.log('Connection status:', status);
     chatManager.enable(status === 'connected');
 });
 
@@ -117,11 +117,20 @@ window.addEventListener('local-message', (e) => {
     }
 });
 
-function confirmPlanetRename(systemId) {
+function confirmRename(systemId, planetId = null) {
     const input = document.getElementById('new-planet-name-input');
     const newName = input.value.trim();
     if (newName) {
-        peerManager.send({ type: 'GAME_SYSTEM_RENAMED', systemId: systemId, newName: newName });
+        let msg;
+        if (planetId) {
+            msg = { type: 'GAME_PLANET_RENAMED', systemId: systemId, planetId: planetId, newName: newName };
+        } else {
+            msg = { type: 'GAME_SYSTEM_RENAMED', systemId: systemId, newName: newName };
+        }
+        peerManager.send(msg);
+        if (gameEngine) {
+            gameEngine.handlePeerMessage(msg);
+        }
         document.getElementById('rename-planet-modal').classList.add('hidden');
         input.value = '';
     }
@@ -138,7 +147,7 @@ function updateHostViewControls() {
 
     hostFactionSelect.innerHTML = '';
     
-    if (mode === 'god') {
+    if (mode === 'god' || mode === 'filtered') {
         hostFactionSelect.classList.add('hidden');
     } else {
         hostFactionSelect.classList.remove('hidden');
@@ -209,6 +218,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 showAboutModal();
             });
             actionButtonsContainer.appendChild(aboutBtn);
+
+            const statusBtn = document.createElement('button');
+            statusBtn.textContent = "Game Status";
+            statusBtn.style.width = "100%";
+            statusBtn.style.marginTop = "0.5rem";
+            statusBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closeNav();
+                if (gameStatusModal) {
+                    gameStatusModal.show();
+                    if (gameEngine && gameEngine.isHost) {
+                        // Delay update to allow modal to render and layout so charts can size correctly
+                        setTimeout(() => {
+                            const report = gameEngine.generateAIReport();
+                            report.history = gameEngine.reportHistory;
+                            gameStatusModal.update(report);
+                            // Force a resize event to ensure charts render correctly after modal becomes visible
+                            window.dispatchEvent(new Event('resize'));
+                        }, 250);
+                    }
+                }
+            });
+            actionButtonsContainer.appendChild(statusBtn);
         }
     }
 
@@ -319,6 +351,20 @@ document.addEventListener('DOMContentLoaded', () => {
         techTreeModal = new TechTreeModal(gameEngine, () => profileService.getTeam());
         fleetManagerModal = new FleetManagerModal(gameEngine);
         loggingModal = new LoggingModal(gameEngine);
+        gameStatusModal = new GameStatusModal(gameEngine);
+        
+        // Wire up live updates for Game Status Modal
+        window.addEventListener('ai-report-generated', (e) => {
+            if (gameStatusModal && typeof gameStatusModal.update === 'function') {
+                const reportData = e.detail.report;
+                // Include the current report in the history for the graph to show the latest data point
+                const liveHistory = [...e.detail.history, reportData];
+                gameStatusModal.update(reportData, liveHistory);
+                // Force a resize event to ensure charts render correctly during live updates
+                window.dispatchEvent(new Event('resize'));
+            }
+        });
+
         gameEngine.start();
 
         // --- Radial Menu Integration ---
@@ -472,7 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedInfoContainer = document.getElementById('selected-planet-info');
         if (selectedInfoContainer) {
             selectedInfoContainer.addEventListener('click', (e) => {
-                const action = e.target.dataset.action;
+                const action = e.target.dataset.action || e.target.parentElement?.dataset?.action;
                 if (!action) return;
 
                 const shipId = e.target.dataset.shipId;
@@ -480,13 +526,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (action === 'select-ship') {
                     if (shipId) gameEngine.setSelectedShip(shipId, true);
+                } else if (action === 'rename-system' || action === 'rename-planet') {
+                    const systemId = e.target.dataset.systemId || e.target.parentElement.dataset.systemId;
+                    const planetId = e.target.dataset.planetId || e.target.parentElement.dataset.planetId;
+                    if (systemId) {
+                        const renameModal = document.getElementById('rename-planet-modal');
+                        const input = document.getElementById('new-planet-name-input');
+                        let currentName = '';
+                        if (planetId) {
+                            const system = gameEngine.state.systems.find(s => s.id === systemId);
+                            const planet = system?.planets.find(p => p.id === planetId);
+                            if (planet) currentName = planet.name;
+                        } else {
+                            const system = gameEngine.state.systems.find(s => s.id === systemId);
+                            if (system) currentName = system.name;
+                        }
+                        
+                        if (renameModal && input) {
+                            input.value = currentName;
+                            renameModal.classList.remove('hidden');
+                            const confirmBtn = document.getElementById('btn-confirm-rename');
+                            confirmBtn.onclick = () => confirmRename(systemId, planetId);
+                        }
+                    }
                 } else if (action === 'open-radial') {
                     if (shipId) {
                         const ship = gameEngine.state.ships.find(s => s.id === shipId);
                         if (ship) {
                             const rect = gameCanvas.getBoundingClientRect();
-                            const screenX = (ship.x * gameEngine.zoom) + gameEngine.pan.x + rect.left;
-                            const screenY = (ship.y * gameEngine.zoom) + gameEngine.pan.y + rect.top;
+                            const screenX = (ship.x * gameEngine.camera.zoom) + gameEngine.camera.pan.x + rect.left;
+                            const screenY = (ship.y * gameEngine.camera.zoom) + gameEngine.camera.pan.y + rect.top;
                             
                             gameCanvas.dispatchEvent(new CustomEvent('showradialmenu', { 
                                 detail: { entity: ship, x: screenX, y: screenY } 
@@ -589,7 +658,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     top: 70px;
                     right: 10px;
                     left: auto;
-                    z-index: 10;
+                    z-index: 1000;
+                    pointer-events: auto;
+                    user-select: none;
                     width: 220px;
                     background-color: rgba(0, 20, 30, 0.85);
                     border: 1px solid rgba(0, 242, 255, 0.3);
@@ -712,14 +783,33 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hostViewSelect) {
             hostViewSelect.addEventListener('change', (e) => {
                 updateHostViewControls();
+                uiManager.updateHeaderUI();
             });
         }
 
         if (hostFactionSelect) {
             hostFactionSelect.addEventListener('change', (e) => {
                 gameEngine.hostView.faction = e.target.value;
+                uiManager.updateHeaderUI();
             });
         }
+
+        window.addEventListener('host-view-changed', () => {
+            if (hostViewSelect && gameEngine) {
+                if (gameEngine.hostView.mode === 'filtered' && !hostViewSelect.querySelector('option[value="filtered"]')) {
+                    const option = document.createElement('option');
+                    option.value = 'filtered';
+                    option.textContent = 'Custom';
+                    hostViewSelect.appendChild(option);
+                }
+
+                hostViewSelect.value = gameEngine.hostView.mode;
+                updateHostViewControls();
+                if (hostFactionSelect && gameEngine.hostView.mode !== 'god' && gameEngine.hostView.mode !== 'filtered') {
+                    hostFactionSelect.value = gameEngine.hostView.faction;
+                }
+            }
+        });
 
         // Logging Modal Logic
         const btnOpenLoggingModal = document.getElementById('btn-open-logging-modal');
@@ -742,16 +832,40 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
-            const resourceRate = parseInt(document.getElementById('resource-rate').value, 10) / 100; // Convert percentage to multiplier
-            const shipSpeedRate = parseInt(document.getElementById('ship-speed-rate').value, 10) / 100; // Convert percentage to multiplier
+            
+            const resourceRateRaw = parseInt(document.getElementById('resource-rate').value, 10);
+            const shipSpeedRateRaw = parseInt(document.getElementById('ship-speed-rate').value, 10);
+            const isSpectator = document.getElementById('spectator-mode').checked;
+            const isSymmetric = document.getElementById('symmetric-map').checked;
 
-            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate });
+            // Save configuration for next time
+            const setupConfig = {
+                numSystems, numAI, twoWayDensity, oneWayDensity,
+                resourceRateVal: resourceRateRaw,
+                shipSpeedRateVal: shipSpeedRateRaw,
+                isSpectator, isSymmetric
+            };
+            localStorage.setItem('cosmic_balance_setup_config', JSON.stringify(setupConfig));
+
+            let resourceRateVal = resourceRateRaw;
+            if (resourceRateVal === 1000) resourceRateVal = 10000; // Boost max to 10000% for simulation
+            const resourceRate = resourceRateVal / 100; // Convert percentage to multiplier
+            const shipSpeedRate = shipSpeedRateRaw / 100; // Convert percentage to multiplier
+
+            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
             toastManager.show('New game created and sent to peers!', 'success');
 
             const hostViewControls = document.getElementById('host-view-controls');
             if (hostViewControls) {
                 hostViewControls.classList.remove('hidden');
+                
+                // Sync UI with engine state (e.g. Spectator sets mode to 'god')
+                const hostViewSelect = document.getElementById('host-view-select');
+                if (hostViewSelect) {
+                    hostViewSelect.value = gameEngine.hostView.mode;
+                }
+
                 updateHostViewControls();
             }
 
