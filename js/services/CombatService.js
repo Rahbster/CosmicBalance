@@ -1,4 +1,4 @@
-import { PLANET_NAMES } from './GalaxyService.js';
+import { PLANET_NAMES, SHIP_DATA } from './GalaxyService.js';
 
 export class CombatService {
     constructor(engine) {
@@ -137,6 +137,22 @@ export class CombatService {
                         if (topOwner && topOwner !== system.owner) {
                             const previousOwner = system.owner;
                             system.owner = topOwner;
+
+                            // Clear build queue if ownership changes to prevent ghost builds
+                            if (system.buildQueue && system.buildQueue.length > 0) {
+                                // Refund resources to the original owners of the queued items
+                                system.buildQueue.forEach(item => {
+                                    const itemOwner = this.engine.state.players.find(p => p.id === item.ownerId);
+                                    const cost = SHIP_DATA[item.shipType]?.cost;
+                                    if (itemOwner && cost && item.startTime !== undefined) {
+                                        itemOwner.resources.IO += (cost.credits || 0);
+                                        itemOwner.resources.scrap += (cost.scrap || 0);
+                                        itemOwner.resources.energy += (cost.energy || 0);
+                                    }
+                                });
+                                system.buildQueue = [];
+                                this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: system.id, queue: [] });
+                            }
 
                             // Only prompt for rename if the system was previously unowned
                             if (!previousOwner) {

@@ -21,10 +21,12 @@ export class AIService {
     run(dt) {
         if (!this.engine.isHost || !this.engine.state.players || !this.engine.techService.getTechData()) return;
 
-        const aiPlayers = this.engine.state.players.filter(p => p.isAI);
+        const aiPlayers = this.engine.state.players.filter(p => p.isAI && !p.isDead);
         const techData = this.engine.techService.getTechData();
 
         for (const aiPlayer of aiPlayers) {
+            if (aiPlayer.isDead) continue;
+
             aiPlayer.actionTimer = (aiPlayer.actionTimer || 0) + dt;
 
             // Run AI logic roughly every 1 second, staggered
@@ -43,8 +45,10 @@ export class AIService {
         const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
         const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
         const mySystems = this.engine.state.systems.filter(s => s.owner === aiPlayer.id);
+        // Include systems where we own a planet but not the system (Contested)
+        const contestedSystems = this.engine.state.systems.filter(s => s.owner !== aiPlayer.id && s.planets.some(p => p.owner === aiPlayer.id));
         const myStations = myShips.filter(s => s.isStation);
-        const allBuilders = [...mySystems, ...myStations];
+        const allBuilders = [...mySystems, ...contestedSystems, ...myStations];
         
         // Helper to count ships including those in production
         const countShips = (type) => {
@@ -57,12 +61,15 @@ export class AIService {
         // Default state
         aiPlayer.aiGoal = 'Idle';
 
-        if (mySystems.length === 0 && myStations.length === 0) {
+        if (mySystems.length === 0 && contestedSystems.length === 0 && myStations.length === 0) {
             aiPlayer.aiGoal = 'Survival (No Systems)';
             return;
         }
 
         const resources = aiPlayer.resources;
+
+        // Helper to count ships including those in production
+        const combatShipCount = countShips('Fighter') + countShips('Frigate') + countShips('Destroyer') + countShips('Cruiser');
 
         // Helper to find the best builder for a specific ship type
         const buildShip = (shipType, goalMessage) => {
@@ -98,6 +105,12 @@ export class AIService {
             aiPlayer.aiGoal = goalMessage;
             return true;
         };
+
+        // Priority -1: Emergency Defense
+        // Ensure we have at least a minimal defensive force before anything else.
+        if (combatShipCount < 2 && this._canAfford(resources, 'Fighter')) {
+             if (buildShip('Fighter', 'Emergency Defense')) return;
+        }
 
         // Priority 0: Infrastructure (Space Stations)
         // Build stations if we have resources and systems without them to increase heavy ship production capacity
@@ -140,10 +153,11 @@ export class AIService {
 
         // Priority 2: Expansion (Troop Transport)
         const transportCount = countShips('TroopTransport');
-        const combatShipCount = countShips('Fighter') + countShips('Frigate') + countShips('Destroyer') + countShips('Cruiser');
         
         // Ensure we have enough transports to support multiple fleets (approx 1 per 3 combat ships)
-        const desiredTransports = combatShipCount > 0 ? Math.max(1, Math.ceil(combatShipCount / profile.transportRatio)) : 0;
+        // Cap at 15 to prevent excessive spam (e.g. 99 transports) in late game
+        const maxTransports = 15;
+        const desiredTransports = combatShipCount > 0 ? Math.min(maxTransports, Math.max(1, Math.ceil(combatShipCount / profile.transportRatio))) : 0;
 
         if (transportCount < desiredTransports) {
             if (this._canAfford(resources, 'TroopTransport')) {
@@ -159,7 +173,13 @@ export class AIService {
         // Dynamic Cap based on profile (Swarm gets more)
         const baseCap = profile.name === 'Swarm' ? 120 : 80;
         const territoryBonus = mySystems.length * 8; // +8 ships per system controlled
-        const shipCap = baseCap + territoryBonus;
+        let shipCap = baseCap + territoryBonus;
+
+        // Resource Overflow: Increase cap if we are floating massive resources
+        if (resources.IO > 50000) shipCap += 50;
+        if (resources.IO > 200000) shipCap += 100;
+        if (resources.IO > 1000000) shipCap += 400;
+        if (resources.IO > 5000000) shipCap += 1000;
         
         let totalQueued = 0;
         allBuilders.forEach(b => { if (b.buildQueue) totalQueued += b.buildQueue.length; });
@@ -271,7 +291,6 @@ export class AIService {
 
     _commandSalvager(aiPlayer, salvager) {
         const currentSystem = this.engine.spatialService.getCurrentSystem(salvager);
-
         if (!currentSystem) {
             // It's in deep space, recover it.
             this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Salvager ${salvager.id} is idle in deep space at ${salvager.x},${salvager.y}`);
@@ -286,59 +305,63 @@ export class AIService {
         const allDebrisFields = this.engine.state.debrisFields;
         if (!allDebrisFields || allDebrisFields.length === 0) return;
 
-        let targetDebris = null;
+        // 1. Determine "need" for scrap. Factor is 1.0 when scrap is 0, and decreases as scrap increases.
+        const scrapNeedFactor = Math.max(0.1, 1 - (aiPlayer.resources.scrap / 5000));
 
-        // 1. Prioritize debris in the current system
-        const sysRadius = this.engine.spatialService.getSystemEffectiveRadius(currentSystem) + 200; // Buffer
-        const localDebris = allDebrisFields.filter(d => {
-            const dx = d.x - currentSystem.x;
-            const dy = d.y - currentSystem.y;
-            return (dx * dx + dy * dy) <= (sysRadius * sysRadius);
-        });
+        // 2. Find all visible debris fields and calculate their value.
+        const valuedDebris = allDebrisFields
+            .map(debris => {
+                const debrisSystem = this.engine.spatialService.getClosestSystem(debris);
+                if (!debrisSystem) return null;
 
-        if (localDebris.length > 0) {
-            targetDebris = this._findClosest(salvager, localDebris);
-        }
+                const visibility = debrisSystem.visibility[aiPlayer.id];
+                if (visibility !== 'explored' && visibility !== 'scouted') return null;
 
-        // 2. If no local debris, look for debris in neighbor systems
-        if (!targetDebris) {
-            const neighborSystemIds = currentSystem.links.map(l => l.targetId);
-            // Filter debris that belongs to neighbor systems
-            const neighborDebris = allDebrisFields.filter(d => {
-                const dSys = this.engine.spatialService.getClosestSystem(d);
-                // Check if the debris's closest system is one of our neighbors AND we have explored it
-                return dSys && neighborSystemIds.includes(dSys.id) && 
-                       dSys.visibility[aiPlayer.id] && dSys.visibility[aiPlayer.id] !== 'unexplored';
-            });
+                let travelTime = Infinity;
+                if (debrisSystem.id === currentSystem.id) {
+                    const speed = (salvager.sublight || 1) * 5 * (this.engine.state.settings?.shipSpeedRate || 1.0);
+                    const dist = Math.hypot(debris.x - salvager.x, debris.y - salvager.y);
+                    travelTime = dist / (speed > 0 ? speed : 1);
+                } else {
+                    const path = this.engine.movementService.findPath(currentSystem.id, debrisSystem.id);
+                    if (path) {
+                        travelTime = 0;
+                        let lastSystem = currentSystem;
+                        for (const systemId of path) {
+                            const nextSystem = this.engine.state.systems.find(s => s.id === systemId);
+                            if (nextSystem) {
+                                travelTime += this._calculateShipTravelTime(salvager, lastSystem, nextSystem);
+                                lastSystem = nextSystem;
+                            }
+                        }
+                    }
+                }
 
-            if (neighborDebris.length > 0) {
-                targetDebris = this._findClosest(salvager, neighborDebris);
-            }
-        }
+                if (travelTime === Infinity) return null;
 
-        if (targetDebris) {
-            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${targetDebris.id}`);
+                const value = (debris.resources.scrap || 0) / (1 + travelTime);
+                return { debris, value };
+            })
+            .filter(item => item !== null);
+
+        if (valuedDebris.length === 0) return;
+
+        // 3. Sort by best value.
+        valuedDebris.sort((a, b) => b.value - a.value);
+        const bestTarget = valuedDebris[0];
+
+        // 4. Decide if the best target is "good enough" based on need.
+        // Base threshold is 2. If need is high (factor=1), threshold is 2. If need is low (factor=0.1), threshold is 20.
+        const valueThreshold = 2 / scrapNeedFactor;
+
+        if (bestTarget.value > valueThreshold) {
+            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${bestTarget.debris.id} with value ${bestTarget.value.toFixed(1)} (Threshold: ${valueThreshold.toFixed(1)})`);
             this.engine.movementService.handleSalvageMissionRequest({
                 senderId: aiPlayer.id,
                 shipId: salvager.id,
-                targetDebrisId: targetDebris.id
+                targetDebrisId: bestTarget.debris.id
             });
         }
-    }
-
-    _findClosest(entity, items) {
-        let closest = null;
-        let minDist = Infinity;
-        items.forEach(item => {
-            const dx = item.x - entity.x;
-            const dy = item.y - entity.y;
-            const dist = dx * dx + dy * dy;
-            if (dist < minDist) {
-                minDist = dist;
-                closest = item;
-            }
-        });
-        return closest;
     }
 
     _commandScout(aiPlayer, scout) {
@@ -348,6 +371,20 @@ export class AIService {
             const neighbors = currentSystem.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
             const unexplored = neighbors.filter(n => !n.visibility[aiPlayer.id] || n.visibility[aiPlayer.id] === 'unexplored');
             
+            // --- Heat Trail Logic ---
+            // If the current system is "hot" (recent activity) but we don't see enemies, they likely moved to a neighbor.
+            const heat = currentSystem.heat || 0;
+            const enemiesPresent = this.engine.state.ships.some(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, currentSystem));
+            
+            if (heat > 20 && !enemiesPresent) {
+                // Prioritize neighbors that are unexplored to catch them
+                const chaseTargets = unexplored.length > 0 ? unexplored : neighbors;
+                const target = chaseTargets[Math.floor(Math.random() * chaseTargets.length)];
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Scout ${scout.id} following heat trail (${heat.toFixed(0)}) from ${currentSystem.name} to ${target.name}`);
+                this.engine.movementService.handleScoutMissionRequest({ senderId: aiPlayer.id, shipId: scout.id, targetSystemId: target.id });
+                return;
+            }
+
             if (unexplored.length > 0) {
                 const target = unexplored[Math.floor(Math.random() * unexplored.length)];
                 this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Scout ${scout.id} exploring ${target.id}`);
@@ -432,7 +469,8 @@ export class AIService {
         });
 
         // Dynamic Fleet Size: Scale with total army size to create larger late-game fleets
-        const dynamicFleetSize = Math.max(profile.fleetSize, Math.min(Math.floor(myShips.length / 5), 25));
+        // Increased divisor and max size to encourage larger deathballs in late game
+        const dynamicFleetSize = Math.max(profile.fleetSize, Math.min(Math.floor(myShips.length / 4), 40));
 
         for (const [systemId, ships] of Object.entries(shipsBySystem)) {
             if (ships.length >= dynamicFleetSize) {
@@ -548,7 +586,28 @@ export class AIService {
         if (aiPlayer.resources.IO > 25000) aggressionMod *= 0.8; // Lower threshold if rich
         const effectiveThreshold = profile.engageThreshold * aggressionMod;
         
+        // Trajectory Analysis: Pre-calculate incoming enemy strength per system
+        const incomingThreats = {};
+        this.engine.state.ships.forEach(s => {
+            if (s.owner !== aiPlayer.id && s.targetId && s.hull > 0) {
+                if (!incomingThreats[s.targetId]) incomingThreats[s.targetId] = { strength: 0, isMySystem: false };
+                incomingThreats[s.targetId].strength += (s.hull + s.shield + s.damage * 10);
+            }
+        });
+        // Mark owned systems in threat map
+        mySystems.forEach(s => {
+            if (incomingThreats[s.id]) incomingThreats[s.id].isMySystem = true;
+        });
+
         const currentTargets = new Set(); // Track targets to coordinate attacks
+        // Pre-populate currentTargets with targets of currently moving fleets to ensure coordination with active operations
+        aiPlayer.fleets.forEach(f => {
+             const fShips = this.engine.state.ships.filter(s => f.shipIds.includes(s.id));
+             const movingShip = fShips.find(s => s.targetId && s.moveState === SHIP_STATE.MOVING);
+             if (movingShip) currentTargets.add(movingShip.targetId);
+        });
+
+        const proposedMoves = []; // Store { fleet, target, currentSystem } for synchronization
 
         aiPlayer.fleets.forEach(fleet => {
             // Ensure we only command ships that actually belong to this fleet (fix for ghost fleets)
@@ -570,6 +629,13 @@ export class AIService {
             }
 
             const hasTransport = fleetShips.some(s => s.type === 'TroopTransport');
+
+            // 0. Interception Logic: Check if we should stay in current system due to incoming threat
+            // If enemies are en route here, hold position to defend/ambush.
+            const incomingHere = incomingThreats[currentSystem.id];
+            if (incomingHere && incomingHere.strength > 0) {
+                return; // Hold position to intercept
+            }
 
             // If in enemy system
             if (currentSystem.owner && currentSystem.owner !== aiPlayer.id) {
@@ -606,11 +672,14 @@ export class AIService {
                 const enemyShips = this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, n));
                 const enemyStrength = this._calculateStrength(enemyShips);
                 
+                // Add incoming reinforcements to enemy strength for risk assessment
+                const incoming = incomingThreats[n.id] ? incomingThreats[n.id].strength : 0;
+                const totalEnemyStrength = enemyStrength + incoming;
+
                 // Coordination: If we are already attacking this target, assume we have help (lower effective enemy strength)
                 const coordinationBonus = currentTargets.has(n.id) ? 0.5 : 1.0;
                 
-                // If no enemies, strength is 0, so we can always attack (0 * threshold = 0)
-                return fleetStrength >= (enemyStrength * coordinationBonus) * effectiveThreshold;
+                return fleetStrength >= (totalEnemyStrength * coordinationBonus) * effectiveThreshold;
             });
 
             // Sort enemies by Strategic Score (Value vs Strength)
@@ -621,9 +690,13 @@ export class AIService {
                 const valA = this._getSystemStrategicValue(a);
                 const valB = this._getSystemStrategicValue(b);
 
+                const distA = Math.hypot(a.x - currentSystem.x, a.y - currentSystem.y);
+                const distB = Math.hypot(b.x - currentSystem.x, b.y - currentSystem.y);
+
                 // Heuristic: High value systems are worth attacking even if slightly stronger
-                const scoreA = (valA * 20) - strA;
-                const scoreB = (valB * 20) - strB;
+                // Distance penalty: -0.5 per pixel (e.g. 200px = -100 score) to prefer closer targets
+                const scoreA = (valA * 20) - strA - (distA * 0.5);
+                const scoreB = (valB * 20) - strB - (distB * 0.5);
                 
                 return scoreB - scoreA; // Descending score
             });
@@ -642,54 +715,134 @@ export class AIService {
                 target = neutralNeighbors[Math.floor(Math.random() * neutralNeighbors.length)];
             } else {
                 // 3. Patrol/Defend/Explore
-                // Prioritize moving to "Frontier" systems (neighbors with enemy connections) or Hubs
-                let validNeighbors = neighbors;
-                const lastSystemId = fleetShips[0] ? fleetShips[0].lastSystemId : null;
-                if (lastSystemId && neighbors.length > 1) {
-                    validNeighbors = neighbors.filter(n => n.id !== lastSystemId);
+                
+                // Check if we are currently at a frontier (adjacent to known enemy)
+                const currentIsFrontier = neighbors.some(n => n.owner && n.owner !== aiPlayer.id && (n.visibility[aiPlayer.id] === 'explored' || n.visibility[aiPlayer.id] === 'scouted'));
+
+                if (currentIsFrontier) {
+                    // We are at the front line. Hold position to defend unless we decide to patrol.
+                    if (Math.random() < 0.7) return; 
                 }
 
-                // Sort neighbors by strategic value to patrol important choke points/hubs
-                validNeighbors.sort((a, b) => {
-                    // Bonus if the neighbor borders an enemy (Frontier defense)
-                    const aIsFrontier = a.links.some(l => {
-                        const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
-                        return s && s.owner && s.owner !== aiPlayer.id;
-                    }) ? 50 : 0;
-                    const bIsFrontier = b.links.some(l => {
-                        const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
-                        return s && s.owner && s.owner !== aiPlayer.id;
-                    }) ? 50 : 0;
+                // If safe (not frontier), try to move towards the front line.
+                if (!currentIsFrontier) {
+                    const hop = this._findNearestFrontierHop(currentSystem, aiPlayer);
+                    if (hop) target = hop;
+                }
 
-                    return (this._getSystemStrategicValue(b) + bIsFrontier) - (this._getSystemStrategicValue(a) + aIsFrontier);
-                });
+                // Fallback: Patrol / Move to Hubs if no target yet (or if we decided to move along frontier)
+                if (!target) {
+                    let validNeighbors = neighbors;
+                    const lastSystemId = fleetShips[0] ? fleetShips[0].lastSystemId : null;
+                    if (lastSystemId && neighbors.length > 1) {
+                        validNeighbors = neighbors.filter(n => n.id !== lastSystemId);
+                    }
 
-                // Pick the best one, or random if they are all similar
-                if (validNeighbors.length > 0) {
-                    // Add some randomness to avoid all fleets clumping at the same hub
-                    const topCount = Math.min(3, validNeighbors.length);
-                    target = validNeighbors[Math.floor(Math.random() * topCount)];
+                    validNeighbors.sort((a, b) => {
+                        const aIsFrontier = a.links.some(l => {
+                            const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
+                            return s && s.owner && s.owner !== aiPlayer.id;
+                        }) ? 50 : 0;
+                        const bIsFrontier = b.links.some(l => {
+                            const s = this.engine.state.systems.find(sys => sys.id === l.targetId);
+                            return s && s.owner && s.owner !== aiPlayer.id;
+                        }) ? 50 : 0;
+
+                        // Trajectory Prediction Bonus:
+                        // Prioritize systems where enemies are moving to (Intercept/Defend)
+                        const threatA = incomingThreats[a.id];
+                        const threatB = incomingThreats[b.id];
+                        // Higher priority if it's OUR system being attacked (150), vs just an enemy moving to neutral (75)
+                        const interceptA = threatA ? (threatA.isMySystem ? 150 : 75) : 0;
+                        const interceptB = threatB ? (threatB.isMySystem ? 150 : 75) : 0;
+
+                    const distA = Math.hypot(a.x - currentSystem.x, a.y - currentSystem.y);
+                    const distB = Math.hypot(b.x - currentSystem.x, b.y - currentSystem.y);
+
+                    // Prefer closer systems for patrol/movement to avoid long travel times for simple repositioning
+                    return (this._getSystemStrategicValue(b) + bIsFrontier + interceptB - (distB * 0.2)) - (this._getSystemStrategicValue(a) + aIsFrontier + interceptA - (distA * 0.2));
+                    });
+
+                    if (validNeighbors.length > 0) {
+                        const topCount = Math.min(3, validNeighbors.length);
+                        target = validNeighbors[Math.floor(Math.random() * topCount)];
+                    }
                 }
             }
 
             if (target) {
-                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Fleet ${fleet.id} (at ${currentSystem.id}) moving to ${target.id}`);
+                proposedMoves.push({ fleet, target, currentSystem });
                 currentTargets.add(target.id);
-                
-                if (target.owner && target.owner !== aiPlayer.id) {
-                    aiPlayer.aiGoal = `Attacking ${target.name}`;
-                } else if (!target.owner && hasTransport) {
-                    aiPlayer.aiGoal = `Colonizing ${target.name}`;
-                } else {
-                    aiPlayer.aiGoal = `Moving to ${target.name}`;
-                }
-
-                this.engine.fleetService.handleMoveFleetRequest({
-                    senderId: aiPlayer.id,
-                    fleetId: fleet.id,
-                    targetSystemId: target.id
-                });
             }
+        });
+
+        // Execute Proposed Moves with Synchronization
+        this._executeCoordinatedMoves(aiPlayer, proposedMoves);
+    }
+
+    _executeCoordinatedMoves(aiPlayer, proposedMoves) {
+        const movesByTarget = {};
+        proposedMoves.forEach(move => {
+            if (!movesByTarget[move.target.id]) movesByTarget[move.target.id] = [];
+            movesByTarget[move.target.id].push(move);
+        });
+
+        Object.keys(movesByTarget).forEach(targetId => {
+            const moves = movesByTarget[targetId];
+            const targetSystem = this.engine.state.systems.find(s => s.id === targetId);
+            
+            // Calculate ETAs for proposed moves
+            moves.forEach(move => {
+                move.travelTime = this._calculateFleetTravelTime(move.fleet, targetSystem);
+            });
+
+            // Check ETAs of fleets already en route to coordinate arrival
+            let maxEta = 0;
+            
+            aiPlayer.fleets.forEach(f => {
+                const fShips = this.engine.state.ships.filter(s => f.shipIds.includes(s.id));
+                const movingShip = fShips.find(s => s.targetId === targetId && s.moveState === SHIP_STATE.MOVING);
+                if (movingShip) {
+                    const eta = this._calculateShipEta(movingShip, targetSystem);
+                    if (eta > maxEta) maxEta = eta;
+                }
+            });
+
+            // Also consider the proposed moves for max ETA (slowest fleet determines arrival time)
+            moves.forEach(move => {
+                if (move.travelTime > maxEta) maxEta = move.travelTime;
+            });
+
+            // Execute moves that are within the synchronization window
+            const SYNC_WINDOW = 5; // seconds tolerance
+            
+            moves.forEach(move => {
+                const waitTime = maxEta - move.travelTime;
+                
+                if (waitTime <= SYNC_WINDOW) {
+                    this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Fleet ${move.fleet.id} moving to ${targetSystem.name} (ETA: ${move.travelTime.toFixed(1)}s). Sync delay: ${waitTime.toFixed(1)}s`);
+                    
+                    if (targetSystem.owner && targetSystem.owner !== aiPlayer.id) {
+                        aiPlayer.aiGoal = `Attacking ${targetSystem.name}`;
+                    } else if (!targetSystem.owner && move.fleet.shipIds.some(id => {
+                        const s = this.engine.state.ships.find(ship => ship.id === id);
+                        return s && s.type === 'TroopTransport';
+                    })) {
+                        aiPlayer.aiGoal = `Colonizing ${targetSystem.name}`;
+                    } else {
+                        aiPlayer.aiGoal = `Moving to ${targetSystem.name}`;
+                    }
+
+                    this.engine.fleetService.handleMoveFleetRequest({
+                        senderId: aiPlayer.id,
+                        fleetId: move.fleet.id,
+                        targetSystemId: targetSystem.id
+                    });
+                } else {
+                    this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.DEBUG, `Fleet ${move.fleet.id} waiting to sync attack on ${targetSystem.name}. Wait: ${waitTime.toFixed(1)}s`);
+                    aiPlayer.aiGoal = `Coordinating Attack on ${targetSystem.name}`;
+                }
+            });
         });
     }
 
@@ -704,5 +857,101 @@ export class AIService {
 
     _calculateStrength(ships) {
         return ships.reduce((sum, s) => sum + (s.hull + s.shield) + (s.damage * 10), 0);
+    }
+
+    _calculateShipTravelTime(ship, startSystem, targetSystem) {
+        if (!startSystem || !targetSystem) return Infinity;
+
+        const speedMultiplier = (this.engine.state.settings?.shipSpeedRate || 1.0);
+        // Use 1 as a fallback warp to avoid division by zero for non-warp ships
+        const speed = (ship.warp || 1) * 75 * speedMultiplier;
+
+        if (speed <= 0) return Infinity;
+
+        const dx = targetSystem.x - startSystem.x;
+        const dy = targetSystem.y - startSystem.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        return dist / speed; // Time in seconds
+    }
+
+    _calculateFleetTravelTime(fleet, targetSystem) {
+        const fleetShips = this.engine.state.ships.filter(s => fleet.shipIds.includes(s.id));
+        if (fleetShips.length === 0) return 0;
+
+        const currentSystem = this.engine.state.systems.find(s => s.id === fleet.locationId);
+        if (!currentSystem) return 0;
+
+        const minWarp = Math.min(...fleetShips.map(s => s.warp || 0));
+        const speedMultiplier = (this.engine.state.settings?.shipSpeedRate || 1.0);
+        const speed = minWarp * 75 * speedMultiplier; // 75 is base WARP_SPEED_FACTOR
+
+        if (speed <= 0) return Infinity;
+
+        const dx = targetSystem.x - currentSystem.x;
+        const dy = targetSystem.y - currentSystem.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        return dist / speed; // Time in seconds
+    }
+
+    _calculateShipEta(ship, targetSystem) {
+        const speedMultiplier = (this.engine.state.settings?.shipSpeedRate || 1.0);
+        const speed = (ship.warp || 0) * 75 * speedMultiplier;
+        
+        if (speed <= 0) return Infinity;
+
+        const dx = targetSystem.x - ship.x;
+        const dy = targetSystem.y - ship.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        return dist / speed;
+    }
+
+    _findNearestFrontierHop(startSystem, aiPlayer) {
+        const queue = [];
+        const visited = new Set();
+        
+        // Initialize with neighbors, sorted by distance to prefer shorter initial jumps
+        const neighbors = startSystem.links
+            .map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+            .filter(s => s);
+            
+        neighbors.sort((a, b) => Math.hypot(a.x - startSystem.x, a.y - startSystem.y) - Math.hypot(b.x - startSystem.x, b.y - startSystem.y));
+
+        neighbors.forEach(neighbor => {
+            queue.push({ system: neighbor, firstHop: neighbor });
+            visited.add(neighbor.id);
+        });
+        visited.add(startSystem.id);
+
+        while (queue.length > 0) {
+            const { system, firstHop } = queue.shift();
+            const visibility = system.visibility[aiPlayer.id];
+            const isVisible = visibility === 'explored' || visibility === 'scouted';
+
+            // 1. Is Enemy?
+            if (system.owner && system.owner !== aiPlayer.id && isVisible) return firstHop;
+
+            // 2. Is Frontier? (Has visible enemy neighbor)
+            if (isVisible) {
+                const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+                const hasEnemyNeighbor = neighbors.some(n => {
+                    const nVis = n.visibility[aiPlayer.id];
+                    return n.owner && n.owner !== aiPlayer.id && (nVis === 'explored' || nVis === 'scouted');
+                });
+                if (hasEnemyNeighbor) return firstHop;
+            }
+
+            // Expand
+            const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id);
+                    queue.push({ system: neighbor, firstHop: firstHop });
+                }
+            }
+        }
+        return null;
     }
 }

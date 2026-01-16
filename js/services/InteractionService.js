@@ -236,6 +236,81 @@ export class InteractionService {
         });
 
         this.canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Touch handling
+        this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+        this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
+    }
+
+    handleTouchStart(e) {
+        if (e.cancelable) e.preventDefault();
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            this.canvas.dispatchEvent(new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                button: 0
+            }));
+        } else if (e.touches.length === 2) {
+            this.isPanning = false;
+            this.isZooming = true;
+            this.lastTouchDistance = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+        }
+    }
+
+    handleTouchMove(e) {
+        if (e.cancelable) e.preventDefault();
+        if (e.touches.length === 1 && !this.isZooming) {
+            const touch = e.touches[0];
+            this.canvas.dispatchEvent(new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                button: 0
+            }));
+        } else if (e.touches.length === 2) {
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            
+            if (this.lastTouchDistance) {
+                const zoomFactor = dist / this.lastTouchDistance;
+                const oldZoom = this.engine.camera.zoom;
+                this.engine.camera.zoom = Math.max(0.1, Math.min(this.engine.camera.zoom * zoomFactor, 20));
+                
+                const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const rect = this.canvas.getBoundingClientRect();
+                
+                const worldX = (midX - rect.left - this.engine.camera.pan.x) / oldZoom;
+                const worldY = (midY - rect.top - this.engine.camera.pan.y) / oldZoom;
+                
+                this.engine.camera.pan.x = (midX - rect.left) - worldX * this.engine.camera.zoom;
+                this.engine.camera.pan.y = (midY - rect.top) - worldY * this.engine.camera.zoom;
+                
+                this.engine.camera.constrainPanAndZoom();
+            }
+            this.lastTouchDistance = dist;
+        }
+    }
+
+    handleTouchEnd(e) {
+        if (e.cancelable) e.preventDefault();
+        if (this.isZooming && e.touches.length < 2) {
+            this.isZooming = false;
+            this.lastTouchDistance = 0;
+        } else if (e.changedTouches.length > 0) {
+            const touch = e.changedTouches[0];
+            this.canvas.dispatchEvent(new MouseEvent('mouseup', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                button: 0
+            }));
+        }
     }
 
     getMousePos(e) {

@@ -315,7 +315,7 @@ export class RenderService {
                 ctx.setLineDash([4 / this.gameEngine.camera.zoom, 4 / this.gameEngine.camera.zoom]);
                 
                 // Rotate based on time for visibility
-                const rotation = (Date.now() / 2000) % (Math.PI * 2);
+                const rotation = (this.gameEngine.state.gameTime / 2000) % (Math.PI * 2);
                 ctx.translate(system.x, system.y);
                 ctx.rotate(rotation);
                 
@@ -333,12 +333,22 @@ export class RenderService {
             
             system.planets.forEach((planet, i) => {
                 // Simple orbit animation based on time
-                const angle = (Date.now() / 10000 + i) % (Math.PI * 2);
-                const dist = orbitBase + (i * planetGap);
-                const px = system.x + Math.cos(angle) * dist;
-                const py = system.y + Math.sin(angle) * dist;
+                const angle = (this.gameEngine.state.gameTime / 10000 + i) % (Math.PI * 2);
+                const semiMajor = orbitBase + (i * planetGap);
+                const semiMinor = semiMajor * 0.65; // Elliptical ratio
+
+                // Rotate the ellipse based on system position for variety
+                const tilt = ((system.x + system.y) % 360) * (Math.PI / 180);
+
+                const ux = Math.cos(angle) * semiMajor;
+                const uy = Math.sin(angle) * semiMinor;
+
+                const px = system.x + (ux * Math.cos(tilt) - uy * Math.sin(tilt));
+                const py = system.y + (ux * Math.sin(tilt) + uy * Math.cos(tilt));
                 
-                this.drawPlanetMini(ctx, planet, px, py, 3);
+                const typeInfo = PLANET_TYPES[planet.type];
+                const radius = typeInfo ? typeInfo.radius : 3;
+                this.drawPlanetMini(ctx, planet, px, py, radius);
             });
         }
 

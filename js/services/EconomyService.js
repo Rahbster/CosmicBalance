@@ -14,6 +14,7 @@ export class EconomyService {
 
         // Calculate income for each player
         this.engine.state.players.forEach(player => {
+            if (player.isDead) return;
             let hasIncome = false;
             const income = { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
 
@@ -153,7 +154,11 @@ export class EconomyService {
                 }
                 // If timer has started, process it
                 if (firstItem.startTime !== undefined) {
-                    firstItem.remainingTime -= dt;
+                    // Rush construction if rich (Money talks)
+                    let speedMultiplier = 1;
+                    if (owner.resources.IO > 1000000) speedMultiplier = 5;
+                    else if (owner.resources.IO > 500000) speedMultiplier = 2;
+                    firstItem.remainingTime -= (dt * speedMultiplier);
                     if (firstItem.remainingTime <= 0) {
                         // Build complete
                         let spawnSystem = null;
@@ -318,7 +323,18 @@ export class EconomyService {
             return;
         }
 
-        if (player && location && shipData && location.owner === player.id) {
+        // Check ownership or access
+        let hasAccess = false;
+        if (location) {
+            if (location.owner === player.id) {
+                hasAccess = true;
+            } else if (locationType === 'Planet' && location.planets) {
+                // Allow if player owns any planet in the system
+                hasAccess = location.planets.some(p => p.owner === player.id);
+            }
+        }
+
+        if (player && location && shipData && hasAccess) {
             const canBeBuilt = locationType === 'Planet' ? shipData.builtBy.includes('Planet')
                                : (SHIP_DATA[location.type]?.buildCapabilities?.includes(shipType));
 

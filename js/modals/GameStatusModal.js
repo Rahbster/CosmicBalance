@@ -26,6 +26,8 @@ export class GameStatusModal {
                 if (this.engine) {
                     this.engine.togglePause();
                     this.updatePauseButton();
+                } else {
+                    console.error("[GameStatusModal] Engine instance not found!");
                 }
             };
         }

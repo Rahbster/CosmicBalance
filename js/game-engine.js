@@ -1,4 +1,4 @@
-import { GalaxyService, SHIP_DATA } from './services/GalaxyService.js';
+import { GalaxyService, SHIP_DATA, PLANET_TYPES } from './services/GalaxyService.js';
 import { InteractionService } from './services/InteractionService.js';
 import { RenderService } from './services/RenderService.js';
 import { AIService, AI_PROFILES } from './services/AIService.js';
@@ -22,7 +22,9 @@ export class GameEngine {
         this.peerManager = peerManager;
         this.profileService = profileService;
         this.isHost = true; // Assume host role by default for local play. A peer joining will have this set to false.
-        this.paused = false;
+        
+        this.loggingService = new LoggingService();
+        console.log("[GameEngine] Constructor started.");
         
         this.state = {
             systems: [],
@@ -33,18 +35,29 @@ export class GameEngine {
         };
 
         // Try to load state from localStorage
+        console.log("[GameEngine] Attempting to load game state from localStorage...");
         const savedState = localStorage.getItem('cosmic_balance_gamestate');
         if (savedState) {
+            console.log("[GameEngine] Found saved game state.");
             try {
-                this.state = JSON.parse(savedState);
+                const loadedState = JSON.parse(savedState);
+                this.state = loadedState;
+                // Explicitly set the engine's paused status from the loaded state.
+                this.paused = loadedState.paused || false;
+                this.timeScale = loadedState.timeScale || 1.0;
+                console.log(`[GameEngine] Loaded 'paused' state from storage: ${loadedState.paused}. Engine 'paused' is now: ${this.paused}`);
                 if (this.state.gameTime === undefined) this.state.gameTime = 0;
             } catch (e) {
-                console.error("Failed to parse saved state", e);
+                console.error("[GameEngine] Failed to parse saved state", e);
+                this.paused = false; // Default on error
             }
         } else {
+            // No saved state, so the game is not paused.
+            console.log("[GameEngine] No saved game state found. Defaulting to not paused.");
+            this.paused = false;
+            this.timeScale = 1.0;
         }
 
-        this.loggingService = new LoggingService();
         this.galaxyService = new GalaxyService(this.canvas, this.loggingService);
         this.camera = new CameraManager(this, this.canvas);
         this.spatialService = new SpatialService(this);
@@ -78,6 +91,8 @@ export class GameEngine {
         this.autoReportInterval = 60000; // 1 minute
         this.liveReportTimer = 0;
         this.liveReportInterval = 1000; // 1 second
+        this.victoryCheckTimer = 0;
+        this.victoryCheckInterval = 2000; // 2 seconds
         
         // Host-specific view settings
         this.hostView = {
@@ -105,8 +120,15 @@ export class GameEngine {
     }
 
     togglePause() {
+        console.log(`[GameEngine] togglePause called. Current: ${this.paused}, New: ${!this.paused}`);
         this.paused = !this.paused;
         this.broadcast({ type: 'GAME_SET_PAUSE', paused: this.paused });
+    }
+
+    setGameSpeed(speed) {
+        this.timeScale = parseFloat(speed);
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Game Speed set to ${this.timeScale}x`);
+        this.broadcast({ type: 'GAME_SET_SPEED', speed: this.timeScale });
     }
 
     requestSelfDestruct(shipId) {
@@ -178,15 +200,53 @@ export class GameEngine {
 
     _saveState() {
         if (this.isHost) {
-            localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
-            localStorage.setItem('cosmic_balance_reports', JSON.stringify(this.reportHistory));
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Game state saved to localStorage.");
+            this.state.paused = this.paused;
+            this.state.timeScale = this.timeScale;
+            
+            try {
+                const stateString = JSON.stringify(this.state);
+                localStorage.setItem('cosmic_balance_gamestate', stateString);
+            } catch (e) {
+                // Handle QuotaExceededError (code 22 is common across browsers)
+                if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22) {
+                    console.warn("[GameEngine] Storage quota exceeded. Performing cleanup...");
+                    
+                    // 1. Clear secondary data
+                    localStorage.removeItem('cosmic_balance_reports');
+                    console.warn("[GameEngine] Reports cleared from storage to save Game State. Full history remains in memory.");
+                    
+                    // 2. Remove the old save file before writing the new one (helps with copy-on-write limits)
+                    localStorage.removeItem('cosmic_balance_gamestate');
+
+                    try {
+                        localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
+                        console.log("[GameEngine] Save successful after cleanup.");
+                    } catch (retryE) {
+                        console.error("[GameEngine] CRITICAL: Save failed even after cleanup.", retryE);
+                        if (window.toastManager) window.toastManager.show("Save Failed: Storage Full!", 'error');
+                    }
+                } else {
+                    console.error("[GameEngine] Failed to save game state:", e);
+                    this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to save game state: ${e.message}`);
+                }
+            }
+
+            try {
+                // Save last 60 reports (approx 1 hour) to storage to manage space, 
+                // but keep full history in memory for export/analysis.
+                const reportsToSave = this.reportHistory.slice(-60);
+                localStorage.setItem('cosmic_balance_reports', JSON.stringify(reportsToSave));
+            } catch (e) {
+                // Ignore report save errors as they are non-critical
+            }
         }
     }
 
     setState(newState) {
         this.state = newState;
         this.isHost = false; // Clients receiving state are not the host
+        this.paused = this.state.paused || false; // Sync pause state for client
+        this.timeScale = this.state.timeScale || 1.0;
         // When a new state is set, we might need to reset some local things
         this.selectionManager.selectedLocationId = null;
         this.selectionManager.selectedShipId = null;
@@ -225,6 +285,8 @@ export class GameEngine {
         const { numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
     
         this.isHost = true;
+        this.paused = false; // Explicitly reset pause state for a new game
+        this.timeScale = 1.0;
         this.state.gameConfig = config;
 
         const availableColors = [...FACTION_COLORS];
@@ -560,11 +622,10 @@ export class GameEngine {
         this.lastTime = timestamp;
 
         // Simulation delta time. If paused, simulation stops.
-        const simDt = this.paused ? 0 : dt;
+        const simDt = this.paused ? 0 : dt * (this.timeScale || 1.0);
 
-        if (this.isHost) {
-            this.state.gameTime = (this.state.gameTime || 0) + simDt;
-        }
+        // Update gameTime for both host and client to drive animations
+        this.state.gameTime = (this.state.gameTime || 0) + simDt;
         
         if (this.isHost && !this.paused) {
             this.runHostLogic(simDt);
@@ -589,13 +650,15 @@ export class GameEngine {
         }
 
         // Throttle saving the game state
-        if (this.isHost && !this.paused) {
-            this.saveStateTimer += simDt;
+        if (this.isHost) {
+            this.saveStateTimer += dt;
             if (this.saveStateTimer >= this.saveStateInterval) {
                 this.saveStateTimer = 0;
                 this._saveState();
             }
+        }
 
+        if (this.isHost && !this.paused) {
             // Auto-generate AI reports (History Snapshot)
             this.autoReportTimer += simDt;
             if (this.autoReportTimer >= this.autoReportInterval) {
@@ -668,6 +731,7 @@ export class GameEngine {
     runHostLogic(dt) {
         this.combatService.runCombat(dt);
         this.combatService.runCaptureLogic(dt);
+        this.runVictoryCheck(dt);
         // These methods accumulate state changes without broadcasting every frame
         this.economyService.runResourceGeneration(dt);
         this.economyService.runResearch(dt);
@@ -675,8 +739,43 @@ export class GameEngine {
         this.economyService.runBuildQueues(dt);
         this.economyService.runRepairJobs(dt);
         this.combatService.runShieldRegen(dt);
+        this.runHeatDecay(dt);
         // This method handles throttled broadcasts for economy state
         this.economyService.runPeriodicBroadcasts(dt);
+    }
+
+    runVictoryCheck(dt) {
+        this.victoryCheckTimer += dt;
+        if (this.victoryCheckTimer >= this.victoryCheckInterval) {
+            this.victoryCheckTimer = 0;
+            
+            this.state.players.forEach(p => {
+                if (p.isDead) return;
+
+                const hasShips = this.state.ships.some(s => s.owner === p.id);
+                const hasPlanets = this.state.systems.some(sys => sys.planets.some(pl => pl.owner === p.id));
+
+                if (!hasShips && !hasPlanets) {
+                    p.isDead = true;
+                    this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `VICTORY CHECK: Player ${p.factionName} has been eliminated.`);
+                    this.broadcast({ 
+                        type: 'GAME_TOAST', 
+                        message: `${p.factionName} has been eliminated!`, 
+                        toastType: 'warning' 
+                    });
+                    this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: p.id, update: { isDead: true } });
+                }
+            });
+        }
+    }
+
+    runHeatDecay(dt) {
+        const decayRate = 2 * (dt / 1000); // 2 points per second decay
+        this.state.systems.forEach(sys => {
+            if (sys.heat > 0) {
+                sys.heat = Math.max(0, sys.heat - decayRate);
+            }
+        });
     }
 
     update(dt) {
@@ -738,10 +837,15 @@ export class GameEngine {
         if (data.type === 'GAME_SPAWN') {
             this.state.ships.push(data.ship);
         } else if (data.type === 'GAME_SET_PAUSE') {
+            console.log(`[GameEngine] Handling GAME_SET_PAUSE. Paused: ${data.paused}`);
             this.paused = data.paused;
             if (window.toastManager) {
                 window.toastManager.show(this.paused ? "Game Paused" : "Game Resumed", 'info');
             }
+            if (this.isHost) this._saveState();
+        } else if (data.type === 'GAME_SET_SPEED') {
+            this.timeScale = data.speed;
+            // UI update is handled via 'local-message' event in app.js or direct binding
         } else if (data.type === 'GAME_MOVE') {
             const ship = this.state.ships.find(s => s.id === data.shipId);
             if (ship) {

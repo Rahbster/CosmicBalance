@@ -408,10 +408,16 @@ export class SelectionManager {
              `;
         }
 
+        // Show Heat/Activity Signature if the player has visibility (or is host/god mode)
+        let activityHtml = '';
+        if (location.heat > 0) {
+            activityHtml = `<p style="font-size: 0.9em; color: #ffcc00;">Signal Activity: <strong>${location.heat.toFixed(0)}</strong></p>`;
+        }
+
         let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
             ${nameHtml}
             <button data-action="hide-panel" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.2em;" title="Hide Panel">▼</button>
-        </div>`;
+        </div>${activityHtml}`;
         html += `<div style="margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
                     <button id="context-open-tech-tree">Tech Tree</button>
                     <button id="context-open-fleet-manager">Fleets</button>

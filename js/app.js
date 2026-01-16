@@ -31,6 +31,21 @@ if (savedTheme) {
 const peerManager = new PeerManager(profileService);
 let currentRemoteName = 'Peer';
 
+// PWA Install Prompt Logic
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.classList.remove('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.classList.add('hidden');
+    deferredPrompt = null;
+});
+
 const signaling = new SignalingChannel();
 const toastManager = new ToastManager();
 window.toastManager = toastManager; // Expose to global scope for engine access
@@ -65,6 +80,25 @@ async function copyToClipboard(id) {
     }
 }
 
+function updateHeaderControls() {
+    const controls = document.getElementById('header-controls');
+    const pauseBtn = document.getElementById('header-pause-btn');
+    const speedSlider = document.getElementById('game-speed-slider');
+    const speedValue = document.getElementById('game-speed-value');
+
+    if (!controls || !gameEngine) return;
+    
+    if (gameEngine.state.systems.length > 0) {
+        controls.classList.remove('hidden');
+        pauseBtn.textContent = gameEngine.paused ? "▶️" : "⏸️";
+        pauseBtn.title = gameEngine.paused ? "Resume Game" : "Pause Game";
+        speedSlider.value = gameEngine.timeScale || 1.0;
+        speedValue.textContent = `${(gameEngine.timeScale || 1.0).toFixed(1)}x`;
+    } else {
+        controls.classList.add('hidden');
+    }
+}
+
 // --- PeerManager Callbacks ---
 peerManager.onMessage((data) => {
     // Handle incoming data (chat or game state)
@@ -78,7 +112,10 @@ peerManager.onMessage((data) => {
         profileService.savePeer(data.guid, data.name);
     } else if (data.type.startsWith('GAME_')) {
         // Pass game events to engine
-        if (gameEngine) gameEngine.handlePeerMessage(data);
+        if (gameEngine) {
+            gameEngine.handlePeerMessage(data);
+            if (data.type === 'GAME_SET_PAUSE' || data.type === 'GAME_SET_SPEED') updateHeaderControls();
+        }
     } else if (data.type === 'GAME_SET_STATE') {
         // When state is set, update local UI like faction name input
         if (gameEngine) {
@@ -86,6 +123,7 @@ peerManager.onMessage((data) => {
             const localPlayer = gameEngine.getLocalPlayer();
             if (localPlayer) setVal('faction-name-input', localPlayer.factionName);
             uiManager.updateColorPickerUI();
+            updateHeaderControls();
         }
     } else if (data.type === 'GAME_PLAYER_UPDATE') {
         if (gameEngine) {
@@ -114,6 +152,8 @@ window.addEventListener('local-message', (e) => {
     if (data.type === 'GAME_PLAYER_UPDATE') {
         uiManager.updateColorPickerUI(); // Refresh color picker availability
         uiManager.updateHeaderUI();
+    } else if (data.type === 'GAME_SET_PAUSE' || data.type === 'GAME_SET_SPEED') {
+        updateHeaderControls();
     }
 });
 
@@ -203,6 +243,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hamburgerBtn) hamburgerBtn.addEventListener('click', openNav);
     if (closeSidenavBtn) closeSidenavBtn.addEventListener('click', closeNav);
     if (overlay) overlay.addEventListener('click', closeNav);
+
+    // PWA Install Button
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) {
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                installBtn.classList.add('hidden');
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                deferredPrompt = null;
+            }
+        });
+    }
 
     // Inject About Button into Sidenav
     if (sidenav) {
@@ -345,6 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Game Engine on load since it's the main view
     if (!gameEngine && gameCanvas) {
+        console.log("[App] Initializing GameEngine...");
         gameEngine = new GameEngine(gameCanvas, peerManager, profileService);
         uiManager.gameEngine = gameEngine; // Link engine to UI manager
         uiManager.colorPicker = document.getElementById('faction-color-picker'); // Re-bind element
@@ -354,6 +408,26 @@ document.addEventListener('DOMContentLoaded', () => {
         gameStatusModal = new GameStatusModal(gameEngine);
         
         // Wire up live updates for Game Status Modal
+        
+        // Header Pause Button Logic
+        const headerPauseBtn = document.getElementById('header-pause-btn');
+        if (headerPauseBtn) {
+            headerPauseBtn.addEventListener('click', () => {
+                if (gameEngine && gameEngine.isHost) {
+                    gameEngine.togglePause();
+                    updateHeaderControls();
+                }
+            });
+        }
+
+        const speedSlider = document.getElementById('game-speed-slider');
+        if (speedSlider) {
+            speedSlider.addEventListener('input', (e) => {
+                if (gameEngine && gameEngine.isHost) {
+                    gameEngine.setGameSpeed(e.target.value);
+                }
+            });
+        }
         window.addEventListener('ai-report-generated', (e) => {
             if (gameStatusModal && typeof gameStatusModal.update === 'function') {
                 const reportData = e.detail.report;
@@ -366,6 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         gameEngine.start();
+        updateHeaderControls();
 
         // --- Radial Menu Integration ---
         gameCanvas.addEventListener('showradialmenu', (e) => {
@@ -854,6 +929,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
+            updateHeaderControls();
             toastManager.show('New game created and sent to peers!', 'success');
 
             const hostViewControls = document.getElementById('host-view-controls');
@@ -875,6 +951,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (e.target.id === 'btn-reset-game') {
             if (confirm('Are you sure you want to reset the game? This will permanently delete your saved game state.')) {
                 gameEngine.resetGame();
+                updateHeaderControls();
                 toastManager.show('Game has been reset.', 'info');
             }
         } else if (e.target.dataset.action === 'queue-build') {

@@ -87,6 +87,7 @@ export class MovementService {
                     if (!ship.arrivalPoint) ship.moveState = SHIP_STATE.IDLE; // If no sublight destination, we are done.
 
                     if (this.engine.isHost && arrivedAtSystem) {
+                        arrivedAtSystem.heat = (arrivedAtSystem.heat || 0) + 20; // Arrival signature
                         // Update fleet location if this ship belongs to a fleet
                         if (ship.fleetId) {
                             const player = this.engine.state.players.find(p => p.id === ship.owner);
@@ -309,6 +310,10 @@ export class MovementService {
             const targetName = targetObj ? (targetObj.name || 'Debris') : targetId;
             
             let logMsg = `[Move Request] ${ship.type} ${ship.id.substring(0,5)}: ${startName} -> ${targetName}. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)})`;
+
+            if (this.engine.isHost && startSystem) {
+                startSystem.heat = (startSystem.heat || 0) + 15; // Departure signature
+            }
 
             if (startSystem) {
                 const startRadius = this.engine.spatialService.getSystemEffectiveRadius(startSystem);
