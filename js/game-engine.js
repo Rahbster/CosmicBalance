@@ -12,7 +12,7 @@ import { TechService } from './services/TechService.js';
 import { SpatialService } from './services/SpatialService.js';
 import { CameraManager } from './services/CameraManager.js';
 import { SelectionManager } from './services/SelectionManager.js';
-import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS } from './cb_constants.js';
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS, DEFAULT_SHIP_DESIGNS } from './cb_constants.js';
 
 
 export class GameEngine {
@@ -307,7 +307,8 @@ export class GameEngine {
                 totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
                 researchedTechs: [], 
                 researchQueue: [], 
-                fleets: [] 
+                fleets: [],
+                designs: [] // Player's custom designs
             });
             this.hostView.mode = 'player';
             this.hostView.selectedPlayerIds = [this.getIdentity().guid];
@@ -337,7 +338,8 @@ export class GameEngine {
                 totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
                 researchedTechs: [], 
                 researchQueue: [], 
-                fleets: [] 
+                fleets: [],
+                designs: []
             };
         }));
 
@@ -896,6 +898,7 @@ export class GameEngine {
                 if (data.resources) player.resources = data.resources;
                 if (data.researchQueue) player.researchQueue = data.researchQueue;
                 if (data.update) {
+                    if (data.update.designs) player.designs = data.update.designs;
                     Object.assign(player, data.update);
                 }
             }

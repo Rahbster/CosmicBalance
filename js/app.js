@@ -14,6 +14,7 @@ import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 import { UIManager } from './ui/UIManager.js';
 import { ProfileService } from './services/ProfileService.js';
 import { GameStatusModal } from './modals/GameStatusModal.js';
+import { ShipDesignerModal } from './modals/ShipDesignerModal.js';
 
 let gameEngine = null;
 let uiManager = new UIManager(null); // Initialize early for theme
@@ -57,6 +58,7 @@ let techTreeModal = null;
 let fleetManagerModal = null;
 let loggingModal = null;
 let gameStatusModal = null;
+let shipDesignerModal = null;
 const radialMenu = new RadialMenu();
 
 let colorPicker = null;
@@ -406,6 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fleetManagerModal = new FleetManagerModal(gameEngine);
         loggingModal = new LoggingModal(gameEngine);
         gameStatusModal = new GameStatusModal(gameEngine);
+        shipDesignerModal = new ShipDesignerModal(gameEngine);
         
         // Wire up live updates for Game Status Modal
         
@@ -836,6 +839,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnOpenFleetManager = document.getElementById('btn-open-fleet-manager');
         if (btnOpenFleetManager) {
             btnOpenFleetManager.addEventListener('click', () => fleetManagerModal.show());
+        }
+
+        const btnOpenShipDesigner = document.getElementById('btn-open-ship-designer');
+        if (btnOpenShipDesigner) {
+            btnOpenShipDesigner.addEventListener('click', () => shipDesignerModal.show());
         }
 
         // UI listeners for density sliders
