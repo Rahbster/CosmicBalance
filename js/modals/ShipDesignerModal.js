@@ -548,6 +548,7 @@ export class ShipDesignerModal {
     _injectCSS() {
         if (document.getElementById('ship-designer-css')) return;
         const css = `
+            #ship-designer-modal { z-index: 2000; }
             .component-item { background: rgba(255,255,255,0.1); padding: 8px; margin-bottom: 5px; cursor: grab; border: 1px solid transparent; border-radius: 4px; }
             .component-item:hover { border-color: var(--primary-color); background: rgba(255,255,255,0.15); }
             .ship-layout-area.drag-over { background: rgba(0, 255, 0, 0.1) !important; border: 2px dashed #0f0; }
