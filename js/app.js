@@ -137,6 +137,9 @@ peerManager.onMessage((data) => {
         if (gameEngine) {
             gameEngine.handlePeerMessage(data);
             if (data.type === 'GAME_SET_PAUSE' || data.type === 'GAME_SET_SPEED') updateHeaderControls();
+            if (data.type === 'GAME_FLEET_UPDATE' && fleetManagerModal && !document.getElementById('fleet-manager-modal').classList.contains('hidden')) {
+                fleetManagerModal.render();
+            }
         }
     } else if (data.type === 'GAME_SET_STATE') {
         // When state is set, update local UI like faction name input
@@ -190,6 +193,10 @@ window.addEventListener('local-message', (e) => {
         uiManager.updateHeaderUI();
     } else if (data.type === 'GAME_SET_PAUSE' || data.type === 'GAME_SET_SPEED') {
         updateHeaderControls();
+    } else if (data.type === 'GAME_FLEET_UPDATE') {
+        if (fleetManagerModal && !document.getElementById('fleet-manager-modal').classList.contains('hidden')) {
+            fleetManagerModal.render();
+        }
     }
 });
 

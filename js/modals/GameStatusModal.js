@@ -11,6 +11,7 @@ export class GameStatusModal {
         this.generateBtn = document.getElementById('btn-generate-report');
         this.copyBtn = document.getElementById('btn-copy-report');
         this.copyHistoryBtn = document.getElementById('btn-copy-history');
+        this.resetHistoryBtn = document.getElementById('btn-reset-history');
         this.pauseBtn = document.getElementById('btn-pause-game');
         this.reportArea = document.getElementById('ai-report-area');
         this.statusInfo = document.getElementById('game-status-info');
@@ -20,6 +21,7 @@ export class GameStatusModal {
         this.generateBtn.onclick = () => this.generateReport();
         this.copyBtn.onclick = () => this.copyReport();
         this.copyHistoryBtn.onclick = () => this.copyHistory();
+        if (this.resetHistoryBtn) this.resetHistoryBtn.onclick = () => this.resetHistory();
 
         if (this.pauseBtn) {
             this.pauseBtn.onclick = () => {
@@ -165,6 +167,15 @@ export class GameStatusModal {
         } catch (err) {
             console.error('Failed to copy history: ', err);
             alert("Failed to copy history to clipboard.");
+        }
+    }
+
+    resetHistory() {
+        if (this.engine && confirm("Are you sure you want to clear the AI report history?")) {
+            this.engine.resetReportHistory();
+            this.reportArea.value = ''; // Clear text area
+            this.updateStatus();
+            this.renderGraph();
         }
     }
 
@@ -331,6 +342,7 @@ export class GameStatusModal {
                         <button id="btn-generate-report" class="theme-button">Generate AI Report</button>
                         <button id="btn-copy-report" class="theme-button">Copy to Clipboard</button>
                         <button id="btn-copy-history" class="theme-button">Copy Full History</button>
+                        <button id="btn-reset-history" class="theme-button" style="background-color: #c0392b;">Reset History</button>
                         <button id="btn-pause-game" class="theme-button" style="background-color: #e67e22;">Pause Game</button>
                     </div>
                     <textarea id="ai-report-area" rows="15" style="width: 100%; font-family: monospace; background: #111; color: #0f0; border: 1px solid #333; padding: 10px; resize: vertical;" readonly placeholder="Click 'Generate AI Report' to view statistics..."></textarea>

@@ -127,6 +127,60 @@ export class EconomyService {
             if (location.buildQueue && location.buildQueue.length > 0) {
                 const firstItem = location.buildQueue[0];
                 const owner = this.engine.state.players.find(p => p.id === firstItem.ownerId);
+
+                // --- Handle Repair Jobs ---
+                if (firstItem.jobType === 'REPAIR') {
+                    const ship = this.engine.state.ships.find(s => s.id === firstItem.shipId);
+                    
+                    // If ship is gone, remove job
+                    if (!ship) {
+                        location.buildQueue.shift();
+                        this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
+                        return;
+                    }
+
+                    // 1. Start Repair
+                    if (firstItem.startTime === undefined) {
+                        const needsRepair = ship.hull < ship.maxHull;
+                        const repairCost = needsRepair ? (ship.maxHull - ship.hull) * 0.5 : 0; // Scrap
+                        const upgradeCost = 100; // IO (Simplified for queue context)
+
+                        if (owner && owner.resources.scrap >= repairCost && owner.resources.IO >= upgradeCost) {
+                            owner.resources.scrap -= repairCost;
+                            owner.resources.IO -= upgradeCost;
+                            firstItem.startTime = this.engine.lastTime;
+                            
+                            ship.isRepairing = true;
+                            ship.repairManagedByQueue = true; // Flag to prevent runRepairJobs from touching it
+                            ship.initialHull = ship.hull;
+                            
+                            this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: owner.id, resources: owner.resources });
+                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isRepairing: true });
+                            this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
+                        }
+                    }
+
+                    // 2. Process Repair
+                    if (firstItem.startTime !== undefined) {
+                        firstItem.remainingTime -= dt;
+                        
+                        // Visual Progress
+                        const totalTime = 15000; // Fixed repair time for now
+                        const progress = 1 - (firstItem.remainingTime / totalTime);
+                        const targetHull = ship.initialHull + (ship.maxHull - ship.initialHull) * progress;
+                        ship.hull = Math.min(ship.maxHull, targetHull);
+
+                        if (firstItem.remainingTime <= 0) {
+                            // Complete
+                            this._completeRepair(ship, owner);
+                            location.buildQueue.shift();
+                            this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
+                        }
+                    }
+                    return; // Done with this location for this tick
+                }
+
+                // --- Handle Build Jobs (Default) ---
                 const shipData = SHIP_DATA[firstItem.shipType];
                 const shipCost = shipData.cost;
 
@@ -237,12 +291,38 @@ export class EconomyService {
         }
     }
 
+    runAutoRepair(dt) {
+        // Find idle stations and queue repairs
+        const stations = this.engine.state.ships.filter(s => s.isStation);
+        
+        stations.forEach(station => {
+            // Check if station is idle (no build queue)
+            if (!station.buildQueue || station.buildQueue.length === 0) {
+                const system = this.engine.spatialService.getCurrentSystem(station);
+                if (!system) return;
+
+                // Find a damaged ship in the same system owned by the same player
+                const damagedShip = this.engine.state.ships.find(s => 
+                    s.owner === station.owner &&
+                    s.currentSystemId === system.id &&
+                    s.hull < s.maxHull &&
+                    !s.isRepairing &&
+                    !s.isStation // Stations don't auto-repair themselves via this logic to prevent loops, or can if needed
+                );
+
+                if (damagedShip) {
+                    this.handleRepairShipRequest({ senderId: station.owner, shipId: damagedShip.id });
+                }
+            }
+        });
+    }
+
     runRepairJobs(dt) {
         // Group repairs by location to enforce sequential repair queue
         const repairsByLocation = {};
         
         this.engine.state.ships.forEach(ship => {
-            if (ship.isRepairing) {
+            if (ship.isRepairing && !ship.repairManagedByQueue) {
                 if (ship.isBuilding) return; // Cannot repair while under construction
 
                 const system = this.engine.spatialService.getCurrentSystem(ship);
@@ -281,23 +361,7 @@ export class EconomyService {
 
                 if (ship.repairTimer <= 0) {
                     const ownerPlayer = this.engine.state.players.find(p => p.id === ship.owner);
-                    const baseData = { ...SHIP_DATA[ship.type] };
-                    const modifiedData = this.engine.techService.applyTechToShipData(baseData, ownerPlayer);
-
-                    // Apply the upgrade/repair completion
-                    ship.maxHull = Math.round(modifiedData.maxHull);
-                    ship.hull = ship.maxHull; // Ensure full repair
-                    ship.maxShield = Math.round(modifiedData.maxShield);
-                    ship.shield = ship.maxShield; // Restore shields
-                    ship.damage = modifiedData.damage;
-                    ship.sublight = modifiedData.sublight;
-                    ship.warp = modifiedData.warp;
-                    ship.vintageTechs = [...ownerPlayer.researchedTechs];
-                    
-                    delete ship.isRepairing;
-                    delete ship.repairTimer;
-                    delete ship.totalRepairTime;
-                    delete ship.initialHull;
+                    this._completeRepair(ship, ownerPlayer);
 
                     // Broadcast the full update
                     this.engine.broadcast({ 
@@ -316,6 +380,27 @@ export class EconomyService {
                 }
             }
         });
+    }
+
+    _completeRepair(ship, ownerPlayer) {
+        const baseData = { ...SHIP_DATA[ship.type] };
+        const modifiedData = this.engine.techService.applyTechToShipData(baseData, ownerPlayer);
+
+        // Apply the upgrade/repair completion
+        ship.maxHull = Math.round(modifiedData.maxHull);
+        ship.hull = ship.maxHull; // Ensure full repair
+        ship.maxShield = Math.round(modifiedData.maxShield);
+        ship.shield = ship.maxShield; // Restore shields
+        ship.damage = modifiedData.damage;
+        ship.sublight = modifiedData.sublight;
+        ship.warp = modifiedData.warp;
+        ship.vintageTechs = [...ownerPlayer.researchedTechs];
+        
+        delete ship.isRepairing;
+        delete ship.repairTimer;
+        delete ship.totalRepairTime;
+        delete ship.initialHull;
+        delete ship.repairManagedByQueue;
     }
 
     requestBuild(shipType, count = 1) {
@@ -498,6 +583,12 @@ export class EconomyService {
         const player = this.engine.state.players.find(p => p.id === senderId);
         if (!player) return;
 
+        // Prevent duplicate research
+        if (player.researchedTechs.includes(techId) || player.researchQueue.some(item => item.techId === techId)) {
+            this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `Player ${senderId} attempted to research duplicate tech: ${techId}`);
+            return;
+        }
+
         const techData = this.engine.techService.getTechData()?.[player.techBase];
         const tech = techData ? techData[techId] : null;
 
@@ -544,6 +635,24 @@ export class EconomyService {
             return;
         }
 
+        // Check if there is a station in the system to queue the repair
+        const system = this.engine.spatialService.getCurrentSystem(ship);
+        const station = this.engine.state.ships.find(s => s.isStation && s.owner === senderId && s.currentSystemId === system?.id);
+
+        if (station) {
+            // Queue the repair job
+            station.buildQueue.push({
+                id: `repair-${crypto.randomUUID()}`,
+                jobType: 'REPAIR',
+                shipId: ship.id,
+                remainingTime: 15000, // 15 seconds
+                ownerId: senderId
+            });
+            this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: station.id, queue: station.buildQueue });
+            return;
+        }
+
+        // Fallback for Deep Space Repair (No Station)
         const needsRepair = ship.hull < ship.maxHull;
         const canUpgrade = player.researchedTechs.length > (ship.vintageTechs?.length || 0);
 

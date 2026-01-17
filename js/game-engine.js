@@ -492,6 +492,29 @@ export class GameEngine {
         else this.broadcast(request);
     }
 
+    requestUpdateFleetShips(fleetId, shipIdsToAdd, shipIdsToRemove) {
+        const request = {
+            type: 'GAME_REQUEST_UPDATE_FLEET_SHIPS',
+            senderId: this.getIdentity().guid,
+            fleetId,
+            shipIdsToAdd,
+            shipIdsToRemove
+        };
+        if (this.isHost) this.fleetService.handleUpdateFleetShipsRequest(request);
+        else this.broadcast(request);
+    }
+
+    requestRenameFleet(fleetId, newName) {
+        const request = {
+            type: 'GAME_REQUEST_RENAME_FLEET',
+            senderId: this.getIdentity().guid,
+            fleetId,
+            newName
+        };
+        if (this.isHost) this.fleetService.handleRenameFleetRequest(request);
+        else this.broadcast(request);
+    }
+
     // Client-side method to request a ship spawn from the host
     requestBuild(shipType, count = 1) {
         this.economyService.requestBuild(shipType, count);
@@ -782,6 +805,12 @@ export class GameEngine {
         return report;
     }
 
+    resetReportHistory() {
+        this.reportHistory = [];
+        if (this.storageService) this.storageService.saveReports([]);
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "AI Report History reset.");
+    }
+
     runHostLogic(dt) {
         this.combatService.runCombat(dt);
         this.combatService.runCaptureLogic(dt);
@@ -789,6 +818,7 @@ export class GameEngine {
         // These methods accumulate state changes without broadcasting every frame
         this.economyService.runResourceGeneration(dt);
         this.economyService.runResearch(dt);
+        this.economyService.runAutoRepair(dt); // Check for idle stations to assign repairs
         // These methods are event-driven and broadcast as needed
         this.economyService.runBuildQueues(dt);
         this.economyService.runRepairJobs(dt);
@@ -1089,10 +1119,14 @@ export class GameEngine {
             }
         } else if (data.type === 'GAME_REQUEST_CREATE_FLEET') {
             this.fleetService.handleCreateFleetRequest(data);
+        } else if (data.type === 'GAME_REQUEST_UPDATE_FLEET_SHIPS') {
+            this.fleetService.handleUpdateFleetShipsRequest(data);
         } else if (data.type === 'GAME_REQUEST_DISBAND_FLEET') {
             this.fleetService.handleDisbandFleetRequest(data);
         } else if (data.type === 'GAME_REQUEST_MOVE_FLEET') {
             this.fleetService.handleMoveFleetRequest(data);
+        } else if (data.type === 'GAME_REQUEST_RENAME_FLEET') {
+            this.fleetService.handleRenameFleetRequest(data);
         } else if (data.type === 'GAME_REQUEST_SELF_DESTRUCT') {
             this.combatService.handleSelfDestructRequest(data);
         } else if (data.type === 'GAME_FLEET_UPDATE') {

@@ -22,7 +22,7 @@ export class TechTreeModal {
             if (e.target.matches('button[data-tech-id]')) {
                 const techId = e.target.dataset.techId;
                 this.engine.requestResearch(techId);
-                this.hide(); // Optionally close modal after starting research
+                // Modal remains open to show progress
             }
         });
     }
@@ -128,6 +128,8 @@ export class TechTreeModal {
             .status.researching { background-color: #007bff; color: white; }
             .status.locked { background-color: #6c757d; color: white; }
             .status.available { background-color: #ffc107; color: black; }
+            .progress-bar-container { height: 6px; background: #444; border-radius: 3px; overflow: hidden; margin-top: 5px; width: 100%; }
+            .progress-bar { height: 100%; background: var(--primary-color, #00A0C0); transition: width 0.5s linear; }
         `;
         const style = document.createElement('style');
         style.id = 'tech-tree-css';

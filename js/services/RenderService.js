@@ -1,5 +1,5 @@
 import { PLANET_TYPES } from './GalaxyService.js';
-import { MAP_WIDTH, MAP_HEIGHT } from '../cb_constants.js';
+import { MAP_WIDTH, MAP_HEIGHT, SHIP_STATE } from '../cb_constants.js';
 
 export class RenderService {
     constructor(canvas, gameEngine, spriteService) {
@@ -79,15 +79,36 @@ export class RenderService {
             });
         }
 
-        // 5. Draw Ships
+        // 5. Draw Ships & Fleets
         const visibleShips = isHostGodView 
             ? state.ships 
             : state.ships.filter(ship => {
                 const isOwner = viewingIds.includes(ship.owner);
                 return isOwner || (ship.currentSystemId && visibleSystemIds.has(ship.currentSystemId));
             });
-            
-        visibleShips.forEach(ship => this.drawShip(ctx, ship));
+        
+        // Group by fleet
+        const fleetsToDraw = new Map();
+        const independentShips = [];
+
+        visibleShips.forEach(ship => {
+            if (ship.fleetId) {
+                if (!fleetsToDraw.has(ship.fleetId)) {
+                    fleetsToDraw.set(ship.fleetId, []);
+                }
+                fleetsToDraw.get(ship.fleetId).push(ship);
+            } else {
+                independentShips.push(ship);
+            }
+        });
+
+        // Draw Fleets
+        fleetsToDraw.forEach((ships, fleetId) => {
+            this.drawFleet(ctx, fleetId, ships);
+        });
+
+        // Draw Independent Ships
+        independentShips.forEach(ship => this.drawShip(ctx, ship));
 
         this.drawSelection(ctx, checkVisibility, visibleShips);
 
@@ -462,6 +483,97 @@ export class RenderService {
         ctx.fill();
     }
 
+    drawFleet(ctx, fleetId, ships) {
+        if (!ships || ships.length === 0) return;
+
+        let x, y;
+        const firstShip = ships[0];
+        const system = firstShip.currentSystemId ? this.gameEngine.state.systems.find(s => s.id === firstShip.currentSystemId) : null;
+
+        if (system && firstShip.moveState === SHIP_STATE.IDLE) {
+            // Orbit logic for fleet icon
+            const orbitRadius = system.r + 25; 
+            // Generate a stable random angle based on fleet ID so it doesn't jump around
+            let hash = 0;
+            for (let i = 0; i < fleetId.length; i++) {
+                hash = ((hash << 5) - hash) + fleetId.charCodeAt(i);
+                hash |= 0;
+            }
+            const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
+            const speed = 0.0002; // Rotation speed
+            const angle = (this.gameEngine.state.gameTime * speed) + angleOffset;
+            
+            x = system.x + Math.cos(angle) * orbitRadius;
+            y = system.y + Math.sin(angle) * orbitRadius;
+        } else {
+            // Calculate centroid for moving fleets or deep space
+            let totalX = 0;
+            let totalY = 0;
+            ships.forEach(s => {
+                totalX += s.x;
+                totalY += s.y;
+            });
+            x = totalX / ships.length;
+            y = totalY / ships.length;
+        }
+
+        const ownerId = ships[0].owner;
+        const player = this.gameEngine.state.players.find(p => p.id === ownerId);
+        const fleet = player ? player.fleets.find(f => f.id === fleetId) : null;
+        const fleetName = fleet ? fleet.name : "Unknown Fleet";
+        const color = player ? player.color : '#FFFFFF';
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // --- Draw Icon (Rotated) ---
+        ctx.save();
+        if (ships[0].targetId) {
+             const target = this.gameEngine.state.systems.find(s => s.id === ships[0].targetId);
+             if (target) {
+                 const rotation = Math.atan2(target.y - y, target.x - x);
+                 ctx.rotate(rotation + Math.PI / 2);
+             }
+        }
+
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#FFF';
+        ctx.lineWidth = 1;
+
+        // Main Chevron
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(10, 8);
+        ctx.lineTo(0, 2);
+        ctx.lineTo(-10, 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Second Chevron
+        ctx.beginPath();
+        ctx.moveTo(0, -2);
+        ctx.lineTo(10, 18);
+        ctx.lineTo(0, 12);
+        ctx.lineTo(-10, 18);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.restore(); // Undo rotation
+
+        // --- Draw Text (Screen Aligned) ---
+        const fontSize = Math.max(10, 12 / this.gameEngine.camera.zoom);
+        ctx.font = `bold ${fontSize}px Orbitron, sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 4;
+        
+        ctx.fillText(fleetName, 0, 25 + (5 / this.gameEngine.camera.zoom));
+        ctx.restore(); // Undo translation
+    }
+
     drawShip(ctx, ship) {
         const sprite = this.spriteService.getSprite(ship.techBase, ship.type);
         if (this.spriteService.isLoaded && sprite) {
@@ -703,12 +815,52 @@ export class RenderService {
         if (selShipId) {
             const ship = state.ships.find(s => s.id === selShipId);
             if (ship && (!visibleShips || visibleShips.includes(ship))) {
+                let drawX = ship.x;
+                let drawY = ship.y;
+
+                // If ship is in a fleet, selection circle should be around the fleet icon
+                if (ship.fleetId) {
+                    // Use the same representative ship as drawFleet to ensure sync
+                    const fleetShips = (visibleShips || state.ships).filter(s => s.fleetId === ship.fleetId);
+                    
+                    if (fleetShips.length > 0) {
+                        const representativeShip = fleetShips[0];
+                        const system = representativeShip.currentSystemId ? state.systems.find(s => s.id === representativeShip.currentSystemId) : null;
+
+                        if (system && representativeShip.moveState === SHIP_STATE.IDLE) {
+                            // Orbit logic matching drawFleet
+                            const orbitRadius = system.r + 25; 
+                            let hash = 0;
+                            for (let i = 0; i < ship.fleetId.length; i++) {
+                                hash = ((hash << 5) - hash) + ship.fleetId.charCodeAt(i);
+                                hash |= 0;
+                            }
+                            const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
+                            const speed = 0.0002;
+                            const angle = (this.gameEngine.state.gameTime * speed) + angleOffset;
+                            
+                            drawX = system.x + Math.cos(angle) * orbitRadius;
+                            drawY = system.y + Math.sin(angle) * orbitRadius;
+                        } else {
+                            // Centroid logic matching drawFleet for moving/deep space fleets
+                            let totalX = 0;
+                            let totalY = 0;
+                            fleetShips.forEach(s => {
+                                totalX += s.x;
+                                totalY += s.y;
+                            });
+                            drawX = totalX / fleetShips.length;
+                            drawY = totalY / fleetShips.length;
+                        }
+                    }
+                }
+
                 // Make selection radius and line width constant in screen space
                 const selectionRadius = 12 / this.gameEngine.camera.zoom;
                 ctx.strokeStyle = '#00FF00';
                 ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
                 ctx.beginPath();
-                ctx.arc(ship.x, ship.y, selectionRadius, 0, Math.PI * 2);
+                ctx.arc(drawX, drawY, selectionRadius, 0, Math.PI * 2);
                 ctx.stroke();
             }
         }

@@ -284,11 +284,16 @@ export class SelectionManager {
                 // Group consecutive items of the same type
                 let lastGroup = null;
                 for (const item of builder.buildQueue) {
-                    if (lastGroup && lastGroup.shipType === item.shipType) {
+                    const key = item.jobType === 'REPAIR' ? `REPAIR_${item.shipId}` : item.shipType;
+                    
+                    if (lastGroup && lastGroup.key === key) {
                         lastGroup.count++;
                     } else {
                         lastGroup = {
+                            key: key,
                             shipType: item.shipType,
+                            jobType: item.jobType,
+                            shipId: item.shipId,
                             count: 1,
                             firstItem: item
                         };
@@ -300,7 +305,18 @@ export class SelectionManager {
             // Render the grouped queue
             groupedQueue.forEach(group => {
                 const item = group.firstItem;
-                const buildTime = SHIP_DATA[item.shipType].buildTime;
+                let buildTime = 0;
+                let label = '';
+
+                if (group.jobType === 'REPAIR') {
+                    const ship = this.engine.state.ships.find(s => s.id === group.shipId);
+                    label = ship ? `Repairing ${ship.type}` : 'Repair Job';
+                    buildTime = 15000; // Fixed repair time
+                } else if (SHIP_DATA[item.shipType]) {
+                    buildTime = SHIP_DATA[item.shipType].buildTime;
+                    label = item.shipType;
+                }
+
                 let progressPercent = 0;
                 let statusText = 'Waiting...';
 
@@ -313,7 +329,7 @@ export class SelectionManager {
                 const countBadge = group.count > 1 ? `<span class="queue-badge">${group.count}x</span>` : '';
 
                 buildQueueHtml += `<li>
-                    <span>${item.shipType}${countBadge} - ${statusText}</span>
+                    <span>${label}${countBadge} - ${statusText}</span>
                     <button class="cancel-build-btn" data-action="cancel-build" data-location-id="${builder.id}" data-item-id="${item.id}">×</button>
                     <div class="progress-bar-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>
                 </li>`;
@@ -463,16 +479,14 @@ export class SelectionManager {
 
                 const techRequirementMet = !shipData.requiresTech || localPlayer.researchedTechs.includes(shipData.requiresTech);
 
-                if (canBuild) {
+                if (canBuild && techRequirementMet) {
                     const cost = shipData.cost;
-                    const disabled = !techRequirementMet ? 'disabled' : '';
-                    const title = !techRequirementMet ? `Requires tech: ${shipData.requiresTech}` : `Queue ${shipType}`;
 
                     html += `<div class="build-item">
                                 <span>${shipType} (IO: ${cost.credits || 0}, S: ${cost.scrap || 0})</span>
                                 <div class="build-controls">
-                                    <input type="number" id="build-count-${shipType}" value="1" min="1" max="100" style="width: 50px;" ${disabled}>
-                                    <button data-action="queue-build" data-ship-type="${shipType}" ${disabled} title="${title}">Queue</button>
+                                    <input type="number" id="build-count-${shipType}" value="1" min="1" max="100" style="width: 50px;">
+                                    <button data-action="queue-build" data-ship-type="${shipType}" title="Queue ${shipType}">Queue</button>
                                 </div>
                              </div>`;
                 }
@@ -522,7 +536,7 @@ export class SelectionManager {
             return;
         }
 
-        const techData = this.engine.techService.getTechData()?.[player.team];
+        const techData = this.engine.techService.getTechData()?.[player.techBase];
         if (!techData) return;
 
         let researchQueueHtml = '<h4>Research In Progress</h4><ul class="research-queue-list">';

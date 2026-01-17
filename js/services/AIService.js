@@ -92,8 +92,19 @@ export class AIService {
 
             if (capableBuilders.length === 0) return false;
 
-            // Pick the builder with the shortest queue
-            capableBuilders.sort((a, b) => (a.buildQueue?.length || 0) - (b.buildQueue?.length || 0));
+            // Pick the builder: Prioritize Safe systems, then Shortest Queue
+            capableBuilders.sort((a, b) => {
+                const sysA = a.isStation ? this.engine.spatialService.getCurrentSystem(a) : a;
+                const sysB = b.isStation ? this.engine.spatialService.getCurrentSystem(b) : b;
+                
+                const aSafe = sysA ? this._isSystemSafe(sysA, aiPlayer.id) : true;
+                const bSafe = sysB ? this._isSystemSafe(sysB, aiPlayer.id) : true;
+
+                if (aSafe && !bSafe) return -1;
+                if (!aSafe && bSafe) return 1;
+
+                return (a.buildQueue?.length || 0) - (b.buildQueue?.length || 0);
+            });
             const bestBuilder = capableBuilders[0];
 
             this.engine.economyService.handleBuildRequest({ 
@@ -106,10 +117,40 @@ export class AIService {
             return true;
         };
 
-        // Priority -1: Emergency Defense
-        // Ensure we have at least a minimal defensive force before anything else.
-        if (combatShipCount < 2 && this._canAfford(resources, 'Fighter')) {
-             if (buildShip('Fighter', 'Emergency Defense')) return;
+        // Check for expansion opportunities (Safe, colonizable neighbors)
+        const knownUnownedNeighbors = mySystems.flatMap(sys => 
+            sys.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+        ).filter(n => 
+            n && !n.owner && 
+            (n.visibility[aiPlayer.id] === 'explored' || n.visibility[aiPlayer.id] === 'scouted') &&
+            this._isSystemSafe(n, aiPlayer.id)
+        );
+        
+        const hasExpansionTarget = knownUnownedNeighbors.length > 0;
+        const transportCount = countShips('TroopTransport');
+
+        // Priority -1: Critical Survival (0 Combat Ships)
+        // If we have absolutely no combat ships, we must prioritize building one above all else.
+        if (combatShipCount === 0) {
+             // EXCEPTION: If we have a safe expansion target and no transport, prioritize that over a lone fighter
+             // This breaks the "Build Fighter -> Die -> Build Fighter" loop if we can expand to safety.
+             if (hasExpansionTarget && transportCount === 0) {
+                 if (this._canAfford(resources, 'TroopTransport')) {
+                     if (buildShip('TroopTransport', 'Desperate Expansion')) return;
+                 } else {
+                     // Save for transport instead of fighter
+                     aiPlayer.aiGoal = 'Saving for Expansion';
+                     return;
+                 }
+             }
+
+             if (this._canAfford(resources, 'Fighter')) {
+                 if (buildShip('Fighter', 'Emergency Defense')) return;
+             } else {
+                 // We are defenseless and poor. Save every penny for a fighter.
+                 aiPlayer.aiGoal = 'Saving for Defense';
+                 return;
+             }
         }
 
         // Priority 0: Infrastructure (Space Stations)
@@ -131,7 +172,7 @@ export class AIService {
             }
         }
         
-        // Priority 0: Economist Special - Prioritize Salvagers
+        // Priority 0.5: Economist Special - Prioritize Salvagers (Only if safe)
         if (profile.name === 'Economist') {
             const salvagerCount = countShips('Salvager');
             if (salvagerCount < profile.salvagerCap && this._canAfford(resources, 'Salvager')) {
@@ -139,20 +180,31 @@ export class AIService {
             }
         }
 
-        // Priority 1: Scout
+        // Priority 1: Targeted Expansion
+        // If we have a safe target and no transport, prioritize it over scouts.
+        if (hasExpansionTarget && transportCount === 0 && combatShipCount >= profile.minCombatForTransport) {
+             if (this._canAfford(resources, 'TroopTransport')) {
+                 if (buildShip('TroopTransport', 'Expanding Territory')) return;
+             } else {
+                 // Save for transport
+                 aiPlayer.aiGoal = 'Saving for Expansion';
+                 return;
+             }
+        }
+
+        // Priority 2: Scout
         const scoutCount = countShips('Scout');
         if (scoutCount < profile.scoutCap && this._canAfford(resources, 'Scout')) {
             if (buildShip('Scout', 'Building Scout')) return;
         }
 
-        // Priority 1.5: Salvagers
+        // Priority 3: Salvagers
         const salvagerCount = countShips('Salvager');
         if (salvagerCount < profile.salvagerCap && this._canAfford(resources, 'Salvager')) {
             if (buildShip('Salvager', 'Building Salvager')) return;
         }
 
-        // Priority 2: Expansion (Troop Transport)
-        const transportCount = countShips('TroopTransport');
+        // Priority 4: General Expansion (Troop Transport)
         
         // Ensure we have enough transports to support multiple fleets (approx 1 per 3 combat ships)
         // Cap at 15 to prevent excessive spam (e.g. 99 transports) in late game
@@ -169,7 +221,7 @@ export class AIService {
             }
         }
 
-        // Priority 3: Combat Fleet
+        // Priority 5: Combat Fleet
         // Dynamic Cap based on profile (Swarm gets more)
         const baseCap = profile.name === 'Swarm' ? 120 : 80;
         const territoryBonus = mySystems.length * 8; // +8 ships per system controlled
@@ -241,6 +293,15 @@ export class AIService {
     _hasTech(aiPlayer, shipType) {
         const requiredTech = SHIP_DATA[shipType].requiresTech;
         return !requiredTech || aiPlayer.researchedTechs.includes(requiredTech);
+    }
+
+    _isSystemSafe(system, aiPlayerId) {
+        // Check for enemy combat ships (damage > 0)
+        return !this.engine.state.ships.some(s => 
+            s.owner !== aiPlayerId && 
+            s.damage > 0 && 
+            this.engine.spatialService.isShipInSystem(s, system)
+        );
     }
 
     _manageResearch(aiPlayer, techData) {
@@ -316,6 +377,10 @@ export class AIService {
 
                 const visibility = debrisSystem.visibility[aiPlayer.id];
                 if (visibility !== 'explored' && visibility !== 'scouted') return null;
+
+                // Check for threats in the system
+                const enemies = this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, debrisSystem));
+                if (enemies.some(s => s.damage > 0)) return null; // Avoid systems with armed enemies
 
                 let travelTime = Infinity;
                 if (debrisSystem.id === currentSystem.id) {
@@ -395,6 +460,13 @@ export class AIService {
                 if (scout.lastSystemId && neighbors.length > 1) {
                     validNeighbors = neighbors.filter(n => n.id !== scout.lastSystemId);
                 }
+
+                // Prefer safe neighbors if possible
+                const safeNeighbors = validNeighbors.filter(n => this._isSystemSafe(n, aiPlayer.id));
+                if (safeNeighbors.length > 0) {
+                    validNeighbors = safeNeighbors;
+                }
+
                 const randomNeighbor = validNeighbors[Math.floor(Math.random() * validNeighbors.length)];
                 if (randomNeighbor) {
                      this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Scout ${scout.id} moving to neighbor ${randomNeighbor.id}`);
@@ -472,8 +544,33 @@ export class AIService {
         // Increased divisor and max size to encourage larger deathballs in late game
         const dynamicFleetSize = Math.max(profile.fleetSize, Math.min(Math.floor(myShips.length / 4), 40));
 
+        // Check for expansion opportunities to allow single-transport fleets
+        const mySystems = this.engine.state.systems.filter(s => s.owner === aiPlayer.id);
+        const knownUnownedNeighbors = mySystems.flatMap(sys => 
+            sys.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+        ).filter(n => 
+            n && !n.owner && 
+            (n.visibility[aiPlayer.id] === 'explored' || n.visibility[aiPlayer.id] === 'scouted') &&
+            this._isSystemSafe(n, aiPlayer.id)
+        );
+        const hasExpansionTarget = knownUnownedNeighbors.length > 0;
+
         for (const [systemId, ships] of Object.entries(shipsBySystem)) {
-            if (ships.length >= dynamicFleetSize) {
+            let requiredSize = dynamicFleetSize;
+            
+            // Exception: If we have a Transport and expansion targets, allow smaller fleet (even size 1)
+            const hasTransport = ships.some(s => s.type === 'TroopTransport');
+            if (hasTransport && hasExpansionTarget) {
+                requiredSize = 1;
+            }
+
+            // Exception: If system is unsafe, form fleet immediately (size 1) to allow retreat/combat logic
+            const system = this.engine.state.systems.find(s => s.id === systemId);
+            if (system && !this._isSystemSafe(system, aiPlayer.id)) {
+                requiredSize = 1;
+            }
+
+            if (ships.length >= requiredSize) {
                 const shipIds = ships.map(s => s.id);
                 const fleetName = `${aiPlayer.factionName} Fleet ${aiPlayer.fleets.length + 1}`;
                 this.engine.fleetService.handleCreateFleetRequest({
@@ -652,8 +749,15 @@ export class AIService {
             } else {
                 // Friendly or Neutral system
                 // If neutral/friendly system with unowned planets and have transport, stay to capture/colonize.
+                // Only stay if it is relatively safe (we aren't hopelessly outnumbered)
+                const enemyShips = this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, currentSystem));
+                const enemyStrength = this._calculateStrength(enemyShips);
+                const myStrength = this._calculateStrength(fleetShips);
+                
+                const isSafe = enemyStrength === 0 || myStrength >= enemyStrength * 0.5;
+                
                 const hasUnownedPlanets = currentSystem.planets.some(p => p.owner !== aiPlayer.id);
-                if (hasUnownedPlanets && hasTransport) return;
+                if (hasUnownedPlanets && hasTransport && isSafe) return;
             }
 
             const neighbors = currentSystem.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
@@ -849,9 +953,17 @@ export class AIService {
     _getSystemStrategicValue(system) {
         let value = 0;
         // Connectivity: Hubs (more links) are critical for movement and control
-        value += system.links.length * 5;
+        value += system.links.length * 2;
         // Economic Potential: More planets = more resources
-        value += (system.planets ? system.planets.length : 0) * 3;
+        if (system.planets) {
+            system.planets.forEach(p => {
+                value += 10; // Base value
+                if (p.type === 'Industrial') value += 40;
+                else if (p.type === 'Terran') value += 25;
+                else if (p.type === 'Mining') value += 20;
+                else if (p.type === 'Farming') value += 5;
+            });
+        }
         return value;
     }
 

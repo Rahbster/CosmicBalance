@@ -67,4 +67,57 @@ export class FleetService {
             this.engine.moveShip(shipId, targetSystemId);
         });
     }
+
+    handleUpdateFleetShipsRequest({ senderId, fleetId, shipIdsToAdd, shipIdsToRemove }) {
+        if (!this.engine.isHost) return;
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        const fleet = player?.fleets.find(f => f.id === fleetId);
+        if (!player || !fleet) return;
+
+        // Add ships
+        if (shipIdsToAdd && shipIdsToAdd.length > 0) {
+            shipIdsToAdd.forEach(shipId => {
+                const ship = this.engine.state.ships.find(s => s.id === shipId);
+                if (ship && ship.owner === senderId) {
+                    // Remove from old fleet if any
+                    if (ship.fleetId && ship.fleetId !== fleetId) {
+                        const oldFleet = player.fleets.find(f => f.id === ship.fleetId);
+                        if (oldFleet) {
+                            oldFleet.shipIds = oldFleet.shipIds.filter(id => id !== shipId);
+                        }
+                    }
+                    ship.fleetId = fleetId;
+                    if (!fleet.shipIds.includes(shipId)) {
+                        fleet.shipIds.push(shipId);
+                    }
+                }
+            });
+        }
+
+        // Remove ships
+        if (shipIdsToRemove && shipIdsToRemove.length > 0) {
+            shipIdsToRemove.forEach(shipId => {
+                const ship = this.engine.state.ships.find(s => s.id === shipId);
+                if (ship && ship.owner === senderId && ship.fleetId === fleetId) {
+                    ship.fleetId = null;
+                    fleet.shipIds = fleet.shipIds.filter(id => id !== shipId);
+                }
+            });
+        }
+
+        const allAffected = [...(shipIdsToAdd || []), ...(shipIdsToRemove || [])];
+        const updatedShips = allAffected.map(id => ({ id, fleetId: this.engine.state.ships.find(s => s.id === id)?.fleetId || null }));
+
+        this.engine.broadcast({ type: 'GAME_FLEET_UPDATE', playerId: senderId, fleets: player.fleets, updatedShips });
+    }
+
+    handleRenameFleetRequest({ senderId, fleetId, newName }) {
+        if (!this.engine.isHost) return;
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        const fleet = player?.fleets.find(f => f.id === fleetId);
+        if (!player || !fleet) return;
+
+        fleet.name = newName;
+        this.engine.broadcast({ type: 'GAME_FLEET_UPDATE', playerId: senderId, fleets: player.fleets });
+    }
 }

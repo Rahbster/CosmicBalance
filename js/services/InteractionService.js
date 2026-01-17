@@ -1,3 +1,5 @@
+import { SHIP_STATE } from '../cb_constants.js';
+
 export class InteractionService {
     constructor(canvas, engine) {
         this.canvas = canvas;
@@ -37,6 +39,50 @@ export class InteractionService {
             const viewingPlayerIds = this.engine.getViewingPlayerIds();
             const isHostGodView = this.engine.isHost && this.engine.hostView.mode === 'god';
 
+            // --- Fleet Detection ---
+            // Group ships by fleet to calculate centroids (matching RenderService logic)
+            const fleets = {};
+            this.state.ships.forEach(s => {
+                if (s.fleetId && (isHostGodView || viewingPlayerIds.includes(s.owner))) {
+                    if (!fleets[s.fleetId]) fleets[s.fleetId] = [];
+                    fleets[s.fleetId].push(s);
+                }
+            });
+
+            const clickedFleets = [];
+            Object.values(fleets).forEach(ships => {
+                if (ships.length === 0) return;
+                
+                let cx, cy;
+                const firstShip = ships[0];
+                const system = firstShip.currentSystemId ? this.state.systems.find(s => s.id === firstShip.currentSystemId) : null;
+
+                if (system && firstShip.moveState === SHIP_STATE.IDLE) {
+                    const orbitRadius = system.r + 25;
+                    let hash = 0;
+                    for (let i = 0; i < ships[0].fleetId.length; i++) {
+                        hash = ((hash << 5) - hash) + ships[0].fleetId.charCodeAt(i);
+                        hash |= 0;
+                    }
+                    const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
+                    const speed = 0.0002;
+                    const angle = (this.engine.state.gameTime * speed) + angleOffset;
+                    cx = system.x + Math.cos(angle) * orbitRadius;
+                    cy = system.y + Math.sin(angle) * orbitRadius;
+                } else {
+                    let tx = 0, ty = 0;
+                    ships.forEach(s => { tx += s.x; ty += s.y; });
+                    cx = tx / ships.length;
+                    cy = ty / ships.length;
+                }
+                
+                const dx = cx - x;
+                const dy = cy - y;
+                if ((dx*dx + dy*dy) < SHIP_CLICK_RADIUS_SQ) {
+                    clickedFleets.push({ id: ships[0].fleetId, ships: ships, x: cx, y: cy });
+                }
+            });
+
             const clickedShips = this.state.ships.filter(s => {
                 if (!isHostGodView && !viewingPlayerIds.includes(s.owner)) return false;
                 const dx = s.x - x;
@@ -70,6 +116,7 @@ export class InteractionService {
             });
 
             const allTargets = [
+                ...clickedFleets.map(f => ({ type: 'fleet', entity: f })),
                 ...clickedShips.map(s => ({ type: 'ship', entity: s })),
                 ...clickedSystems.map(s => ({ type: 'system', entity: s })),
                 ...clickedDebris.map(d => ({ type: 'debris', entity: d }))
@@ -100,7 +147,17 @@ export class InteractionService {
                     }
                 }
 
-                if (target.type === 'ship') {
+                if (target.type === 'fleet') {
+                    // If a fleet is clicked, select the first ship to trigger fleet-wide logic
+                    const fleetObj = target.entity;
+                    const ship = fleetObj.ships[0];
+                    
+                    this.engine.selectionManager.setSelectedShip(ship.id);
+                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                        detail: { entity: ship, x: e.clientX, y: e.clientY } 
+                    }));
+                    return;
+                } else if (target.type === 'ship') {
                     const ship = target.entity;
                     const isOwner = ship.owner === this.engine.getIdentity().guid;
                     const isGod = this.engine.isHost && this.engine.hostView.mode === 'god';

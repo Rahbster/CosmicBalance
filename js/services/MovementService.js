@@ -113,8 +113,6 @@ export class MovementService {
                         // --- Handle Scout Mission Arrival ---
                         if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.to) {
                             // Arrived at scout destination
-                            const fromSystemId = ship.scoutMission.from;
-
                             // 1. Perform scout action
                             let wasDestroyed = false;
                             if (ship.type === 'Scout' && arrivedAtSystem.visibility[ship.owner] !== 'explored') {
@@ -152,16 +150,9 @@ export class MovementService {
                                 }
                             }
 
-                            // 2. Check for return path
-                            const canReturn = arrivedAtSystem.links.some(l => l.targetId === fromSystemId);
-
-                            if (canReturn && !wasDestroyed) { // Don't return if destroyed
-                                this.moveShip(ship.id, fromSystemId);
-                            } else {
-                                // Cannot return or was destroyed, mission ends here
-                                delete ship.scoutMission;
-                                    this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
-                            }
+                            // 2. Mission Complete. Stay here so AI can decide next move (e.g. daisy-chain exploration).
+                            delete ship.scoutMission;
+                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
                         } else if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.from) {
                             // Arrived back home from scout mission
                             delete ship.scoutMission;
@@ -172,7 +163,7 @@ export class MovementService {
                                 this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, targetId: null, moveState: SHIP_STATE.IDLE });
                         } else {
                             // --- Handle Standard Arrival ---
-                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
+                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: ship.moveState, currentSystemId: ship.currentSystemId });
                             // Standard visibility reveal for any ship
                             if (!arrivedAtSystem.visibility[ship.owner] || arrivedAtSystem.visibility[ship.owner] !== 'explored') {
                                 arrivedAtSystem.visibility[ship.owner] = 'explored';
