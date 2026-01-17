@@ -17,6 +17,24 @@
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js').then(registration => {
                     console.log('ServiceWorker registration successful with scope: ', registration.scope);
+
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed') {
+                                if (navigator.serviceWorker.controller) {
+                                    // New update available
+                                    if (window.toastManager) {
+                                        window.toastManager.show('New update available! Please refresh.', 'info', 5000);
+                                    } else {
+                                        console.log('New update available! Please refresh.');
+                                    }
+                                } else {
+                                    console.log('Content is cached for offline use.');
+                                }
+                            }
+                        });
+                    });
                 }, err => {
                     console.log('ServiceWorker registration failed: ', err);
                 });
