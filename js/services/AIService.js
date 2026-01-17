@@ -2,9 +2,9 @@ import { SHIP_DATA } from './GalaxyService.js';
 import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 
 export const AI_PROFILES = {
-    BALANCED: { name: 'Balanced', scoutCap: 2, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 2, fleetSize: 3, aggressiveness: 0.5, retreatThreshold: 0.5, engageThreshold: 1.1, expansionBias: 0.5, researchPriority: 0.5, shipPreference: ['Cruiser', 'Destroyer', 'Frigate', 'Fighter'] },
-    AGGRESSIVE: { name: 'Aggressive', scoutCap: 1, salvagerCap: 0, transportRatio: 5, minCombatForTransport: 2, fleetSize: 4, aggressiveness: 0.9, retreatThreshold: 0.3, engageThreshold: 0.8, expansionBias: 0.35, researchPriority: 0.3, shipPreference: ['Cruiser', 'Destroyer', 'Fighter'] },
-    DEFENSIVE: { name: 'Defensive', scoutCap: 2, salvagerCap: 1, transportRatio: 4, minCombatForTransport: 3, fleetSize: 5, aggressiveness: 0.2, retreatThreshold: 0.7, engageThreshold: 1.5, expansionBias: 0.4, researchPriority: 0.6, shipPreference: ['Cruiser', 'Frigate', 'Destroyer', 'Fighter'] },
+    BALANCED: { name: 'Balanced', scoutCap: 2, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 2, fleetSize: 3, aggressiveness: 0.5, retreatThreshold: 0.5, engageThreshold: 1.1, expansionBias: 0.5, researchPriority: 0.5, shipPreference: ['Cruiser', 'Destroyer', 'Frigate', 'Fighter'], repairStrategy: 'VALUE' },
+    AGGRESSIVE: { name: 'Aggressive', scoutCap: 1, salvagerCap: 0, transportRatio: 5, minCombatForTransport: 2, fleetSize: 4, aggressiveness: 0.9, retreatThreshold: 0.3, engageThreshold: 0.8, expansionBias: 0.35, researchPriority: 0.3, shipPreference: ['Cruiser', 'Destroyer', 'Fighter'], repairStrategy: 'SPEED' },
+    DEFENSIVE: { name: 'Defensive', scoutCap: 2, salvagerCap: 1, transportRatio: 4, minCombatForTransport: 3, fleetSize: 5, aggressiveness: 0.2, retreatThreshold: 0.7, engageThreshold: 1.5, expansionBias: 0.4, researchPriority: 0.6, shipPreference: ['Cruiser', 'Frigate', 'Destroyer', 'Fighter'], repairStrategy: 'CRITICAL' },
     EXPANDER: { name: 'Expander', scoutCap: 3, salvagerCap: 1, transportRatio: 2, minCombatForTransport: 1, fleetSize: 2, aggressiveness: 0.4, retreatThreshold: 0.5, engageThreshold: 1.2, expansionBias: 0.8, researchPriority: 0.4, shipPreference: ['Destroyer', 'Fighter', 'TroopTransport'] },
     TECHNOLOGIST: { name: 'Technologist', scoutCap: 2, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 1, fleetSize: 3, aggressiveness: 0.3, retreatThreshold: 0.6, engageThreshold: 1.2, expansionBias: 0.5, researchPriority: 0.9, shipPreference: ['Cruiser', 'Destroyer', 'Frigate'] },
     ECONOMIST: { name: 'Economist', scoutCap: 2, salvagerCap: 2, transportRatio: 3, minCombatForTransport: 1, fleetSize: 3, aggressiveness: 0.4, retreatThreshold: 0.6, engageThreshold: 1.3, expansionBias: 0.6, researchPriority: 0.5, shipPreference: ['Destroyer', 'Fighter', 'Salvager'] },
@@ -308,18 +308,29 @@ export class AIService {
         const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
         if (aiPlayer.researchQueue.length > 0) return;
 
+        // If we are saving up for something important (Unit production), don't spend money on research
+        if (aiPlayer.aiGoal && aiPlayer.aiGoal.startsWith('Saving')) return;
+
         const aiTechs = techData[aiPlayer.techBase];
         if (!aiTechs) return;
 
-        // Don't research if we have a critically small fleet (unless we are a Technologist)
+        // Don't research if we haven't established a foothold (unless we are a Technologist)
         const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
-        if (myShips.length < 2 && profile.name !== 'Technologist') return;
+        const mySystems = this.engine.state.systems.filter(s => s.owner === aiPlayer.id);
+        
+        // Require at least 2 systems OR a fleet of 5 ships before spending on tech
+        if (mySystems.length < 2 && myShips.length < 5 && profile.name !== 'Technologist') return;
 
         const availableTechs = Object.keys(aiTechs).filter(techId => {
             const tech = aiTechs[techId];
             const isResearched = aiPlayer.researchedTechs.includes(techId);
             const dependenciesMet = tech.dependencies.every(dep => aiPlayer.researchedTechs.includes(dep));
-            const canAfford = aiPlayer.resources.IO >= (tech.cost.IO || 0) && aiPlayer.resources.minerals >= (tech.cost.minerals || 0);
+            
+            // Ensure we keep a buffer for ship building (Transport + Fighter approx 250-300 IO)
+            const bufferIO = 300;
+            const canAfford = (aiPlayer.resources.IO - bufferIO) >= (tech.cost.IO || 0) && 
+                              aiPlayer.resources.minerals >= (tech.cost.minerals || 0);
+            
             return !isResearched && dependenciesMet && canAfford;
         });
 
@@ -591,6 +602,22 @@ export class AIService {
             const fleetShips = this.engine.state.ships.filter(s => fleet.shipIds.includes(s.id) && s.fleetId === fleet.id);
             if (fleetShips.length === 0) return;
 
+            // EMERGENCY INTERRUPT: If under attack, stop repairs immediately!
+            const currentSystem = this.engine.state.systems.find(s => s.id === fleet.locationId);
+            if (currentSystem) {
+                const enemiesPresent = this.engine.state.ships.some(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, currentSystem));
+                if (enemiesPresent) {
+                    fleetShips.forEach(s => {
+                        if (s.isRepairing) {
+                            this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `AI ${aiPlayer.factionName} cancelling repair on ${s.id} due to attack!`);
+                            // Manually clear repair state (simulating a cancel request)
+                            delete s.isRepairing; delete s.repairTimer; delete s.totalRepairTime;
+                        }
+                    });
+                    return; // Skip maintenance logic if under attack
+                }
+            }
+
             // Skip if already repairing
             if (fleetShips.some(s => s.isRepairing)) return;
 
@@ -611,8 +638,6 @@ export class AIService {
             const shouldRefit = (healthPct < profile.retreatThreshold || hasCriticallyDamagedShip) || (needsUpgrade && Math.random() < 0.05);
 
             if (shouldRefit) {
-                const currentSystem = this.engine.state.systems.find(s => s.id === fleet.locationId);
-                
                 // Find systems with owned SpaceStation
                 const stationSystems = this.engine.state.systems.filter(s => 
                     s.owner === aiPlayer.id && 
@@ -627,6 +652,26 @@ export class AIService {
                 if (atStation) {
                     // At station: Issue repair/upgrade requests
                     let requestSent = false;
+                    
+                    // Sort ships based on repair strategy
+                    fleetShips.sort((a, b) => {
+                        const strategy = profile.repairStrategy || 'VALUE';
+                        if (strategy === 'VALUE') {
+                            const valA = this._getShipValue(a.type);
+                            const valB = this._getShipValue(b.type);
+                            if (valA !== valB) return valB - valA; // Descending value
+                        } else if (strategy === 'CRITICAL') {
+                            const pctA = a.hull / a.maxHull;
+                            const pctB = b.hull / b.maxHull;
+                            if (pctA !== pctB) return pctA - pctB; // Ascending health (lowest first)
+                        } else if (strategy === 'SPEED') {
+                            const pctA = a.hull / a.maxHull;
+                            const pctB = b.hull / b.maxHull;
+                            if (pctA !== pctB) return pctB - pctA; // Descending health (highest first)
+                        }
+                        return 0;
+                    });
+
                     fleetShips.forEach(s => {
                         const needsRep = s.hull < s.maxHull;
                         const needsUp = (s.vintageTechs || []).length < aiPlayer.researchedTechs.length;
@@ -711,15 +756,17 @@ export class AIService {
             const fleetShips = this.engine.state.ships.filter(s => fleet.shipIds.includes(s.id) && s.fleetId === fleet.id);
             if (fleetShips.length === 0) return;
             
-            // Skip if repairing
-            if (fleetShips.some(s => s.isRepairing)) return;
+            // Skip if repairing, UNLESS we are in a system with enemies (Emergency Defense)
+            const currentSystemId = fleet.locationId;
+            const currentSystem = this.engine.state.systems.find(s => s.id === currentSystemId);
+            const enemiesPresent = currentSystem ? this.engine.state.ships.some(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, currentSystem)) : false;
+
+            // If repairing and safe, let them repair. If enemies are here, we must act (repairs should have been cancelled by _manageFleetMaintenance, but double check)
+            if (fleetShips.some(s => s.isRepairing) && !enemiesPresent) return;
 
             const isIdle = fleetShips.every(s => s.moveState === SHIP_STATE.IDLE);
             if (!isIdle) return;
 
-            const currentSystemId = fleet.locationId;
-            const currentSystem = this.engine.state.systems.find(s => s.id === currentSystemId);
-            
             if (!currentSystem) {
                 this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.WARNING, `Fleet ${fleet.id} has invalid locationId: `);
                 return;
@@ -738,7 +785,6 @@ export class AIService {
             if (currentSystem.owner && currentSystem.owner !== aiPlayer.id) {
                 // Check if we should stay:
                 // 1. Enemies present?
-                const enemiesPresent = this.engine.state.ships.some(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, currentSystem));
                 if (enemiesPresent) return; // Stay and Fight
 
                 // 2. Can capture?
@@ -965,6 +1011,20 @@ export class AIService {
             });
         }
         return value;
+    }
+
+    _getShipValue(shipType) {
+        switch (shipType) {
+            case 'Cruiser': return 100;
+            case 'Destroyer': return 60;
+            case 'Frigate': return 40;
+            case 'TroopTransport': return 30;
+            case 'Fighter': return 10;
+            case 'Scout': return 5;
+            case 'Salvager': return 5;
+            case 'SpaceStation': return 500;
+            default: return 1;
+        }
     }
 
     _calculateStrength(ships) {

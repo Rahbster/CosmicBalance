@@ -448,12 +448,31 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Header Toggle Logic
+    const hideHeaderHandle = document.getElementById('hide-header-handle');
+    const showHeaderHandle = document.getElementById('show-header-handle');
+    if (hideHeaderHandle && showHeaderHandle) {
+        hideHeaderHandle.addEventListener('click', () => {
+            document.body.classList.add('fullscreen-mode');
+        });
+        showHeaderHandle.addEventListener('click', () => {
+            document.body.classList.remove('fullscreen-mode');
+        });
+    }
+
     // --- GAME LOGIC ---
     const viewGame = document.getElementById('view-game'); // Game view is now default
     viewGame.classList.remove('hidden');
     viewGame.classList.add('active');
 
     const gameCanvas = document.getElementById('game-canvas');
+
+    // Auto-hide header on canvas interaction
+    if (gameCanvas) {
+        gameCanvas.addEventListener('mousedown', () => {
+            document.body.classList.add('fullscreen-mode');
+        });
+    }
 
     // Initialize Game Engine on load since it's the main view
     if (!gameEngine && gameCanvas) {

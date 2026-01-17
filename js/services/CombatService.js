@@ -101,6 +101,35 @@ export class CombatService {
                 const capturingOwnerId = ownersPresent[0];
                 const capturingPlayer = this.engine.state.players.find(p => p.id === capturingOwnerId);
 
+                // Check if there are ANY enemy ships in orbit (not just transports).
+                // You cannot capture a planet if the orbit is contested.
+                const enemiesInOrbit = this.engine.state.ships.some(s => {
+                    if (s.currentSystemId !== system.id) return false;
+                    // Check if within effective radius
+                    const dx = system.x - s.x;
+                    const dy = system.y - s.y;
+                    if ((dx*dx + dy*dy) > (effectiveRadius * effectiveRadius)) return false;
+
+                    const shipOwner = this.engine.state.players.find(p => p.id === s.owner);
+                    // It's an enemy if they are on a different team
+                    return shipOwner && shipOwner.team !== capturingPlayer.team;
+                });
+
+                if (enemiesInOrbit) {
+                    // Treat as contested: Decay progress
+                    system.planets.forEach(planet => {
+                        if (planet.captureProgress > 0 && planet.captureProgress < 100) {
+                            planet.captureProgress -= (DECAY_POINTS_PER_SECOND / 1000) * dt;
+                            if (planet.captureProgress <= 0) {
+                                planet.captureProgress = 0;
+                                planet.capturingTeam = null;
+                            }
+                            this.engine.broadcast({ type: 'GAME_PLANET_UPDATE', planetId: planet.id, captureProgress: planet.captureProgress, capturingTeam: planet.capturingTeam });
+                        }
+                    });
+                    return; // Stop processing capture for this system
+                }
+
                 // Find a planet within the system to capture
                 const targetPlanet = system.planets.find(p => {
                     if (p.owner === capturingOwnerId) return false;
