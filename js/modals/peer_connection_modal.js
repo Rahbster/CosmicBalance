@@ -37,6 +37,7 @@ export function showPeerConnectionModal(toastManager, config) {
                         <div id="panel-join" class="role-panel hidden">
                             <div class="step-box">
                                 <h4>Join Session</h4>
+                                <button id="btn-disconnect-session" class="hidden" style="background-color: #c0392b; color: white; width: 100%; padding: 12px; border: none; font-weight: bold; cursor: pointer; font-size: 1.1rem; margin-bottom: 10px;">Disconnect</button>
                                 <p>Enter 6-Digit Host ID:</p>
                                 <input type="text" id="joiner-id-input" class="sdp-box" placeholder="Enter Host ID" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 4px;">
                             </div>
@@ -78,6 +79,7 @@ export function showPeerConnectionModal(toastManager, config) {
         hostShareInfo: document.getElementById('host-share-info'),
         hostIdDisplay: document.getElementById('host-id-display'),
         joinInput: document.getElementById('joiner-id-input'),
+        btnDisconnect: document.getElementById('btn-disconnect-session'),
         searchInput: document.getElementById('peer-search-input'),
         list: document.getElementById('recent-peers-list')
     };
@@ -129,6 +131,10 @@ export function showPeerConnectionModal(toastManager, config) {
         dom.panelJoin.classList.toggle('hidden', role === 'host');
         dom.list.classList.remove('hidden');
         dom.searchInput.classList.remove('hidden');
+
+        // Show disconnect button if connected
+        const isConnected = peerManager.conn && peerManager.conn.open;
+        dom.btnDisconnect.classList.toggle('hidden', !isConnected);
         renderPeerList(role);
     }
 
@@ -138,6 +144,7 @@ export function showPeerConnectionModal(toastManager, config) {
             const id = await peerManager.host(hostId);
             dom.hostIdDisplay.textContent = id;
             dom.hostShareInfo.classList.remove('hidden');
+            dom.btnDisconnect.classList.remove('hidden');
             toastManager.show('Session started. Waiting for peer...', 'info');
         } catch (err) {
             toastManager.show("Hosting Error: " + err.message, 'error');
@@ -156,6 +163,7 @@ export function showPeerConnectionModal(toastManager, config) {
 
     function closeModal() {
         dom.modal.classList.add('hidden');
+        // Do not clean up the peer manager here. The connection should persist.
     }
 
     // 6. Event Listeners
@@ -169,6 +177,12 @@ export function showPeerConnectionModal(toastManager, config) {
     dom.searchInput.oninput = () => renderPeerList(dom.selectHost.classList.contains('selected') ? 'host' : 'joiner');
 
     dom.btnHost.onclick = () => startHosting(null);
+
+        dom.btnDisconnect.onclick = () => {
+        peerManager.cleanup();
+        toastManager.show('Disconnected from peer.', 'info');
+        dom.btnDisconnect.classList.add('hidden');
+    };
     
     dom.joinInput.oninput = () => {
         if (dom.joinInput.value.length === 6) startJoining(dom.joinInput.value);

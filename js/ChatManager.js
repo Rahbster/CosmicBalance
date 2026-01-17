@@ -1,10 +1,13 @@
+import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
+
 export class ChatManager {
-    constructor(peerAdapter, getIdentity, getTeam) {
+    constructor(peerAdapter, getIdentity, getTeam, loggingService) {
         this.peerAdapter = peerAdapter;
         this.getIdentity = getIdentity;
         this.getTeam = getTeam;
+        this.loggingService = loggingService;
         this.unreadMessages = 0;
-
+        this.isEnabled = false;
         // DOM Elements
         this.modal = document.getElementById('chat-modal');
         this.btnOpen = document.getElementById('btn-open-chat');
@@ -29,19 +32,26 @@ export class ChatManager {
         }
     }
 
+    enable(isEnabled) {
+        this.isEnabled = isEnabled;
+        if (this.btnOpen) this.btnOpen.disabled = !isEnabled;
+    }
+
     sendMessage() {
+        if (!this.isEnabled) return;
         const text = this.input.value.trim();
         if (!text) return;
 
         const scope = this.scopeSelect ? this.scopeSelect.value : 'GLOBAL';
         const team = this.getTeam();
+        const identity = this.getIdentity();
 
         const msg = {
             type: 'chat',
             scope: scope,
             team: team,
             content: text,
-            sender: this.getIdentity().name
+            sender: identity.name
         };
 
         this.peerAdapter.send(msg);
@@ -50,9 +60,11 @@ export class ChatManager {
     }
 
     handleIncomingMessage(data) {
+        this._log(LOG_LEVELS.INFO, "Received message:", data);
         // Filter Logic:
         // If scope is TEAM, only show if my team matches sender's team
         if (data.scope === 'TEAM' && data.team !== this.getTeam()) {
+            this._log(LOG_LEVELS.DEBUG, "Message filtered (Team mismatch). My Team:", this.getTeam(), "Msg Team:", data.team);
             return; // Ignore message
         }
 
@@ -101,7 +113,14 @@ export class ChatManager {
         this.updateBadge();
     }
 
-    enable(isEnabled) {
-        if (this.btnOpen) this.btnOpen.disabled = !isEnabled;
+    _log(level, message, ...args) {
+        if (this.loggingService) {
+            this.loggingService.log(LOG_CATEGORIES.PEER, level, message, ...args);
+        } else {
+            // Fallback if no logging service
+            const prefix = `[CHAT]`;
+            if (level <= LOG_LEVELS.WARNING) console.warn(prefix, message, ...args);
+            else console.log(prefix, message, ...args);
+        }
     }
 }

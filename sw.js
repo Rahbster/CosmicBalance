@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cosmic-balance-v16';
+const CACHE_NAME = 'cosmic-balance-v18';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -37,7 +37,7 @@ const ASSETS_TO_CACHE = [
     './js/ChatManager.js',
     './js/cb_constants.js',
     './js/modals/peer_connection_modal.js',
-    './js/peerjs.min.js',
+    'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
     './manifest.json',
     './data/tech-tree.json',    
     './assets/sprites/unsc_fighter.png',

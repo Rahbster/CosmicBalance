@@ -164,7 +164,8 @@ export const LOG_CATEGORIES = {
     COMBAT: 'COMBAT',
     ECONOMY: 'ECONOMY',
     AI: 'AI',
-    NETWORK: 'NETWORK'
+    NETWORK: 'NETWORK',
+    PEER: 'PEER'
 };
 
 export const FACTION_COLORS = [

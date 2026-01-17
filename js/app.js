@@ -61,9 +61,7 @@ window.addEventListener('appinstalled', () => {
 
 const toastManager = new ToastManager();
 window.toastManager = toastManager; // Expose to global scope for engine access
-const chatManager = new ChatManager({
-    send: (data) => peerManager.send(data)
-}, () => profileService.getIdentity(), () => profileService.getTeam());
+let chatManager = null;
 
 let techTreeModal = null;
 let fleetManagerModal = null;
@@ -114,9 +112,14 @@ function updateHeaderControls() {
 
 // --- PeerManager Callbacks ---
 peerManager.onMessage((data) => {
+    loggingService.log(LOG_CATEGORIES.PEER, LOG_LEVELS.INFO, "[App] Peer Message Received:", data);
     // Handle incoming data (chat or game state)
     if (data.type === 'chat') {
-        chatManager.handleIncomingMessage(data);
+        if (chatManager) {
+            chatManager.handleIncomingMessage(data);
+        } else {
+            loggingService.log(LOG_CATEGORIES.PEER, LOG_LEVELS.WARNING, "[App] ChatManager not initialized, dropping chat message.");
+        }
     } else if (data.type === 'GAME_REQUEST_BUILD') {
         // Add senderId for host processing
         // This is now handled by the client sending its own GUID.
@@ -156,7 +159,7 @@ peerManager.onMessage((data) => {
 });
 
 peerManager.onStatusChange((status) => {
-    chatManager.enable(status === 'connected');
+    if (chatManager) chatManager.enable(status === 'connected');
     const statusEl = document.getElementById('connection-status');
     if (statusEl) {
         statusEl.className = 'connection-status'; // Reset classes
@@ -254,6 +257,11 @@ function updateHostViewControls() {
 
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
+    
+    // Initialize ChatManager here to ensure DOM is ready
+    chatManager = new ChatManager({
+        send: (data) => peerManager.send(data)
+    }, () => profileService.getIdentity(), () => profileService.getTeam(), loggingService);
     
     // Sidenav Logic
     const hamburgerBtn = document.getElementById('hamburger-btn');
@@ -368,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnOpenChat.addEventListener('click', () => {
             closeNav();
             chatModal.classList.remove('hidden');
-            chatManager.resetUnread();
+            if (chatManager) chatManager.resetUnread();
         });
     }
 

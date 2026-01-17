@@ -37,7 +37,16 @@ export class GameEngine {
 
         // Try to load state from localStorage
         console.log("[GameEngine] Attempting to load game state from localStorage...");
-        const loadedState = this.storageService.getGameState();
+        
+        let loadedState = null;
+        if (this.storageService) {
+            loadedState = this.storageService.getGameState();
+        } else {
+            console.warn("[GameEngine] StorageService not provided, falling back to localStorage.");
+            const raw = localStorage.getItem('cosmic_balance_gamestate');
+            if (raw) loadedState = JSON.parse(raw);
+        }
+
         if (loadedState) {
             console.log("[GameEngine] Found saved game state.");
             try {
@@ -79,7 +88,7 @@ export class GameEngine {
         this.saveStateInterval = 5000; // Save state every 5 seconds
         this.aiDebugMode = false;
         
-        this.reportHistory = this.storageService.getReports();
+        this.reportHistory = this.storageService ? this.storageService.getReports() : [];
 
         this.autoReportTimer = 0;
         this.autoReportInterval = 60000; // 1 minute
@@ -197,13 +206,17 @@ export class GameEngine {
             this.state.paused = this.paused;
             this.state.timeScale = this.timeScale;
             
-            if (!this.storageService.saveGameState(this.state)) {
-                if (window.toastManager) window.toastManager.show("Save Failed: Storage Full!", 'error');
-                this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to save game state.`);
+            if (this.storageService) {
+                if (!this.storageService.saveGameState(this.state)) {
+                    if (window.toastManager) window.toastManager.show("Save Failed: Storage Full!", 'error');
+                    this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to save game state.`);
+                }
+                // Save reports
+                this.storageService.saveReports(this.reportHistory);
+            } else {
+                // Fallback
+                localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
             }
-
-            // Save reports
-            this.storageService.saveReports(this.reportHistory);
         }
     }
 
@@ -314,7 +327,7 @@ export class GameEngine {
         this.selectedLocationId = null;
         this.selectedShipId = null;
         this.reportHistory = [];
-        this.storageService.saveReports([]); // Clear reports
+        if (this.storageService) this.storageService.saveReports([]); // Clear reports
         this.state.settings = {
             resourceRate: resourceRate || 1.0,
             shipSpeedRate: shipSpeedRate || 1.0
@@ -396,7 +409,8 @@ export class GameEngine {
     }
 
     resetGame() {
-        this.storageService.clearGameState();
+        if (this.storageService) this.storageService.clearGameState();
+        else localStorage.removeItem('cosmic_balance_gamestate');
         window.location.reload();
     }
 

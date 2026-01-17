@@ -10,7 +10,8 @@ export class LoggingService {
             [LOG_CATEGORIES.COMBAT]: LOG_LEVELS.WARNING,
             [LOG_CATEGORIES.ECONOMY]: LOG_LEVELS.WARNING,
             [LOG_CATEGORIES.AI]: LOG_LEVELS.WARNING,
-            [LOG_CATEGORIES.NETWORK]: LOG_LEVELS.WARNING
+            [LOG_CATEGORIES.NETWORK]: LOG_LEVELS.WARNING,
+            [LOG_CATEGORIES.PEER]: LOG_LEVELS.INFO
         };
         this.loadConfig();
     }
