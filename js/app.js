@@ -32,6 +32,9 @@ if (savedTheme) {
 const peerManager = new PeerManager(profileService);
 let currentRemoteName = 'Peer';
 
+// iOS Detection
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
 // PWA Install Prompt Logic
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -40,6 +43,12 @@ window.addEventListener('beforeinstallprompt', (e) => {
     const installBtn = document.getElementById('btn-install-pwa');
     if (installBtn) installBtn.classList.remove('hidden');
 });
+
+// For iOS, we show the button manually if not in standalone mode
+if (isIOS && !window.navigator.standalone) {
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.classList.remove('hidden');
+}
 
 window.addEventListener('appinstalled', () => {
     const installBtn = document.getElementById('btn-install-pwa');
@@ -250,7 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const installBtn = document.getElementById('btn-install-pwa');
     if (installBtn) {
         installBtn.addEventListener('click', async () => {
-            if (deferredPrompt) {
+            if (isIOS) {
+                // Show iOS instructions
+                const iosModal = document.getElementById('ios-install-modal');
+                if (iosModal) iosModal.classList.remove('hidden');
+                closeNav();
+            } else if (deferredPrompt) {
                 installBtn.classList.add('hidden');
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
@@ -262,6 +276,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Inject About Button into Sidenav
     if (sidenav) {
         const actionButtonsContainer = sidenav.querySelector('.sidenav-item');
+        
+        // Close iOS modal button logic
+        const closeIosBtn = document.getElementById('close-ios-install-modal');
+        if (closeIosBtn) {
+            closeIosBtn.addEventListener('click', () => document.getElementById('ios-install-modal').classList.add('hidden'));
+        }
+
         if (actionButtonsContainer) {
             const aboutBtn = document.createElement('button');
             aboutBtn.textContent = "About";
