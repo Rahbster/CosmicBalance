@@ -16,14 +16,15 @@ import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS, DEFAULT_SHIP_DE
 
 
 export class GameEngine {
-    constructor(canvas, peerManager, profileService) {
+    constructor(canvas, peerManager, profileService, loggingService, storageService) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.peerManager = peerManager;
         this.profileService = profileService;
         this.isHost = true; // Assume host role by default for local play. A peer joining will have this set to false.
         
-        this.loggingService = new LoggingService();
+        this.storageService = storageService;
+        this.loggingService = loggingService || new LoggingService();
         console.log("[GameEngine] Constructor started.");
         
         this.state = {
@@ -36,11 +37,10 @@ export class GameEngine {
 
         // Try to load state from localStorage
         console.log("[GameEngine] Attempting to load game state from localStorage...");
-        const savedState = localStorage.getItem('cosmic_balance_gamestate');
-        if (savedState) {
+        const loadedState = this.storageService.getGameState();
+        if (loadedState) {
             console.log("[GameEngine] Found saved game state.");
             try {
-                const loadedState = JSON.parse(savedState);
                 this.state = loadedState;
                 // Explicitly set the engine's paused status from the loaded state.
                 this.paused = loadedState.paused || false;
@@ -79,13 +79,7 @@ export class GameEngine {
         this.saveStateInterval = 5000; // Save state every 5 seconds
         this.aiDebugMode = false;
         
-        const savedReports = localStorage.getItem('cosmic_balance_reports');
-        try {
-            this.reportHistory = savedReports ? JSON.parse(savedReports) : [];
-        } catch (e) {
-            console.error("Failed to parse saved reports", e);
-            this.reportHistory = [];
-        }
+        this.reportHistory = this.storageService.getReports();
 
         this.autoReportTimer = 0;
         this.autoReportInterval = 60000; // 1 minute
@@ -203,42 +197,13 @@ export class GameEngine {
             this.state.paused = this.paused;
             this.state.timeScale = this.timeScale;
             
-            try {
-                const stateString = JSON.stringify(this.state);
-                localStorage.setItem('cosmic_balance_gamestate', stateString);
-            } catch (e) {
-                // Handle QuotaExceededError (code 22 is common across browsers)
-                if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22) {
-                    console.warn("[GameEngine] Storage quota exceeded. Performing cleanup...");
-                    
-                    // 1. Clear secondary data
-                    localStorage.removeItem('cosmic_balance_reports');
-                    console.warn("[GameEngine] Reports cleared from storage to save Game State. Full history remains in memory.");
-                    
-                    // 2. Remove the old save file before writing the new one (helps with copy-on-write limits)
-                    localStorage.removeItem('cosmic_balance_gamestate');
-
-                    try {
-                        localStorage.setItem('cosmic_balance_gamestate', JSON.stringify(this.state));
-                        console.log("[GameEngine] Save successful after cleanup.");
-                    } catch (retryE) {
-                        console.error("[GameEngine] CRITICAL: Save failed even after cleanup.", retryE);
-                        if (window.toastManager) window.toastManager.show("Save Failed: Storage Full!", 'error');
-                    }
-                } else {
-                    console.error("[GameEngine] Failed to save game state:", e);
-                    this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to save game state: ${e.message}`);
-                }
+            if (!this.storageService.saveGameState(this.state)) {
+                if (window.toastManager) window.toastManager.show("Save Failed: Storage Full!", 'error');
+                this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.ERROR, `Failed to save game state.`);
             }
 
-            try {
-                // Save last 60 reports (approx 1 hour) to storage to manage space, 
-                // but keep full history in memory for export/analysis.
-                const reportsToSave = this.reportHistory.slice(-60);
-                localStorage.setItem('cosmic_balance_reports', JSON.stringify(reportsToSave));
-            } catch (e) {
-                // Ignore report save errors as they are non-critical
-            }
+            // Save reports
+            this.storageService.saveReports(this.reportHistory);
         }
     }
 
@@ -349,7 +314,7 @@ export class GameEngine {
         this.selectedLocationId = null;
         this.selectedShipId = null;
         this.reportHistory = [];
-        localStorage.removeItem('cosmic_balance_reports');
+        this.storageService.saveReports([]); // Clear reports
         this.state.settings = {
             resourceRate: resourceRate || 1.0,
             shipSpeedRate: shipSpeedRate || 1.0
@@ -431,8 +396,7 @@ export class GameEngine {
     }
 
     resetGame() {
-        localStorage.removeItem('cosmic_balance_gamestate');
-        localStorage.removeItem('cosmic_balance_reports');
+        this.storageService.clearGameState();
         window.location.reload();
     }
 
@@ -821,7 +785,7 @@ export class GameEngine {
 
     broadcast(msg) {
         // Send to remote peers only if a data channel is open
-        if (this.peerManager && this.peerManager.dataChannel && this.peerManager.dataChannel.readyState === 'open') {
+        if (this.peerManager && this.peerManager.conn && this.peerManager.conn.open) {
             this.peerManager.send(msg);
         }
 

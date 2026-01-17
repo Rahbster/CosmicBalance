@@ -1,5 +1,4 @@
 import { PeerManager } from './peer.js';
-import { SignalingChannel } from './signaling-service.js';
 import { showPeerConnectionModal } from './modals/peer_connection_modal.js';
 import { showGameSetupModal } from './modals/GameSetupModal.js';
 import { showAboutModal } from './modals/AboutModal.js';
@@ -10,18 +9,22 @@ import { TechTreeModal } from './modals/TechTreeModal.js';
 import { FleetManagerModal } from './modals/FleetManagerModal.js';
 import { RadialMenu } from './ui/RadialMenu.js';
 import { LoggingModal } from './modals/LoggingModal.js';
+import { LoggingService } from './services/LoggingService.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 import { UIManager } from './ui/UIManager.js';
 import { ProfileService } from './services/ProfileService.js';
+import { StorageService } from './services/StorageService.js';
 import { GameStatusModal } from './modals/GameStatusModal.js';
 import { ShipDesignerModal } from './modals/ShipDesignerModal.js';
 
 let gameEngine = null;
-let uiManager = new UIManager(null); // Initialize early for theme
-const profileService = new ProfileService();
+const storageService = new StorageService();
+let uiManager = new UIManager(null, storageService); // Initialize early for theme
+const profileService = new ProfileService(storageService);
+const loggingService = new LoggingService(storageService);
 
 // Initialize Theme on script load to prevent flash of wrong theme
-const savedTheme = localStorage.getItem('theme');
+const savedTheme = storageService.getTheme();
 const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
 if (savedTheme) {
     uiManager.setTheme(savedTheme);
@@ -29,7 +32,7 @@ if (savedTheme) {
     uiManager.setTheme(prefersDarkScheme.matches ? 'dark' : 'light');
 }
 
-const peerManager = new PeerManager(profileService);
+const peerManager = new PeerManager(profileService, loggingService);
 let currentRemoteName = 'Peer';
 
 // iOS Detection
@@ -56,7 +59,6 @@ window.addEventListener('appinstalled', () => {
     deferredPrompt = null;
 });
 
-const signaling = new SignalingChannel();
 const toastManager = new ToastManager();
 window.toastManager = toastManager; // Expose to global scope for engine access
 const chatManager = new ChatManager({
@@ -155,6 +157,17 @@ peerManager.onMessage((data) => {
 
 peerManager.onStatusChange((status) => {
     chatManager.enable(status === 'connected');
+    const statusEl = document.getElementById('connection-status');
+    if (statusEl) {
+        statusEl.className = 'connection-status'; // Reset classes
+        if (status === 'connected') {
+            statusEl.classList.add('connected');
+            statusEl.title = "Connected to Peer";
+        } else {
+            statusEl.classList.add('disconnected');
+            statusEl.title = `Disconnected (${status})`;
+        }
+    }
 });
 
 // Listen for local messages dispatched by the host's game engine
@@ -332,7 +345,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnOpenPeerModal.addEventListener('click', () => {
             closeNav();
             showPeerConnectionModal(toastManager, {
-                signaling,
                 peerManager,
                 getIdentity: () => profileService.getIdentity()
             });
@@ -343,7 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnOpenGameSetupModal) {
         btnOpenGameSetupModal.addEventListener('click', () => {
             closeNav();
-            showGameSetupModal();
+            showGameSetupModal(storageService);
         });
     }
 
@@ -422,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Game Engine on load since it's the main view
     if (!gameEngine && gameCanvas) {
         console.log("[App] Initializing GameEngine...");
-        gameEngine = new GameEngine(gameCanvas, peerManager, profileService);
+        gameEngine = new GameEngine(gameCanvas, peerManager, profileService, loggingService, storageService);
         uiManager.gameEngine = gameEngine; // Link engine to UI manager
         uiManager.colorPicker = document.getElementById('faction-color-picker'); // Re-bind element
         techTreeModal = new TechTreeModal(gameEngine, () => profileService.getTeam());
@@ -826,6 +838,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 .app-header {
                     position: relative;
                     z-index: 100;
+                    display: flex;
+                    align-items: center;
+                }
+                .connection-status {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    margin-left: 10px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .connection-status.connected {
+                    background-color: #2ecc71;
+                    box-shadow: 0 0 8px #2ecc71;
+                }
+                .connection-status.disconnected {
+                    background-color: #e74c3c;
                 }
             `;
             document.head.appendChild(style);
@@ -949,7 +977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 shipSpeedRateVal: shipSpeedRateRaw,
                 isSpectator, isSymmetric
             };
-            localStorage.setItem('cosmic_balance_setup_config', JSON.stringify(setupConfig));
+            storageService.saveSetupConfig(setupConfig);
 
             let resourceRateVal = resourceRateRaw;
             if (resourceRateVal === 1000) resourceRateVal = 10000; // Boost max to 10000% for simulation

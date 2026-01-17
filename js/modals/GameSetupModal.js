@@ -1,4 +1,4 @@
-export function showGameSetupModal() {
+export function showGameSetupModal(storageService) {
     // 1. Inject HTML if not present
     if (!document.getElementById('game-setup-modal')) {
         const modalHTML = `
@@ -86,10 +86,9 @@ export function showGameSetupModal() {
     if (shipSpeedSlider) shipSpeedSlider.addEventListener('input', () => shipSpeedValue.textContent = `${shipSpeedSlider.value}%`);
 
     // 5. Load saved settings
-    const savedConfig = localStorage.getItem('cosmic_balance_setup_config');
-    if (savedConfig) {
+    const config = storageService ? storageService.getSetupConfig() : null;
+    if (config) {
         try {
-            const config = JSON.parse(savedConfig);
             if (config.numSystems) document.getElementById('galaxy-size').value = config.numSystems;
             if (config.numAI !== undefined) document.getElementById('ai-opponents').value = config.numAI;
             

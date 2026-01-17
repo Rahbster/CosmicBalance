@@ -1,141 +1,124 @@
 /**
  * WebRTC Peer Connection Manager
- * Adapted from TeamSudoku logic (Native WebRTC)
+ * Wrapper around PeerJS for game networking
  */
+import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
 
 export class PeerManager {
-    constructor(profileService) {
+    constructor(profileService, loggingService) {
         this.profileService = profileService;
-        this.connection = null;
-        this.dataChannel = null;
+        this.loggingService = loggingService;
+        this.peer = null;
+        this.conn = null;
         this.onMessageCallback = null;
         this.onStatusChangeCallback = null;
+        this.peerPrefix = 'cb-'; // Cosmic Balance prefix
     }
 
-    // Initializes the WebRTC PeerConnection
-    // Corresponds to initializeWebRTC in TeamSudoku
-    _initializeWebRTC() {
-        const config = {
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        };
-
-        const connection = new RTCPeerConnection(config);
-
-        connection.onicecandidate = event => {
-            if (event.candidate) {
-                console.log('New ICE candidate:', event.candidate);
-            }
-        };
-
-        connection.onconnectionstatechange = () => {
-            console.log(`WebRTC Connection State: ${connection.connectionState}`);
-            if (this.onStatusChangeCallback) {
-                this.onStatusChangeCallback(connection.connectionState);
-            }
-        };
-
-        connection.ondatachannel = event => {
-            this._setupDataChannel(event.channel);
-        };
-
-        return connection;
-    }
-
-    // Sets up event handlers for the data channel
-    // Corresponds to setupDataChannel in TeamSudoku
-    _setupDataChannel(channel) {
-        this.dataChannel = channel;
-
-        channel.onopen = () => {
-            console.log('Data Channel is open!');
-            if (this.onStatusChangeCallback) this.onStatusChangeCallback('datachannelopen');
-            // Once the data channel is open, exchange identities
-            this.sendIdentity();
-        };
-
-        channel.onmessage = (event) => {
-            this._handleIncomingMessage(event);
-        };
-    }
-
-    // Handles incoming messages
-    // Corresponds to handleIncomingMessage in TeamSudoku
-    _handleIncomingMessage(event) {
-        try {
-            const data = JSON.parse(event.data);
-            if (this.onMessageCallback) {
-                this.onMessageCallback(data);
-            }
-        } catch (e) {
-            console.error("Error parsing incoming message:", e);
-        }
-    }
-
-    // Creates an offer and waits for ICE gathering
-    // Corresponds to createOffer in TeamSudoku
-    async createOffer() {
-        this.connection = this._initializeWebRTC();
-        const channel = this.connection.createDataChannel('pwa-data-channel');
-        this._setupDataChannel(channel);
-
-        const offer = await this.connection.createOffer();
-        await this.connection.setLocalDescription(offer);
+    /**
+     * Starts hosting a session.
+     * @param {string} [customId] Optional custom ID (without prefix)
+     * @returns {Promise<string>} The full peer ID
+     */
+    async host(customId = null) {
+        this.cleanup();
         
-        // Wait until ICE gathering is complete before returning
-        await this._waitForIceGathering();
+        const id = customId ? `${this.peerPrefix}${customId}` : `${this.peerPrefix}${Math.floor(100000 + Math.random() * 900000)}`;
         
-        // Return the full SDP (including candidates) as a string
-        return JSON.stringify(this.connection.localDescription);
-    }
+        return new Promise((resolve, reject) => {
+            this.peer = new window.Peer(id, { debug: 2 });
 
-    // Creates an answer given an offer string
-    // Corresponds to createAnswer in TeamSudoku
-    async createAnswer(offerStr) {
-        this.connection = this._initializeWebRTC();
-        
-        const offer = JSON.parse(offerStr);
-        await this.connection.setRemoteDescription(new RTCSessionDescription(offer));
-        
-        const answer = await this.connection.createAnswer();
-        await this.connection.setLocalDescription(answer);
-        
-        // Wait until ICE gathering is complete
-        await this._waitForIceGathering();
-        
-        return JSON.stringify(this.connection.localDescription);
-    }
+            this.peer.on('open', (id) => {
+                this._log(LOG_LEVELS.INFO, `Host Peer opened with ID: ${id}`);
+                resolve(id.replace(this.peerPrefix, ''));
+            });
 
-    // Accepts an answer to establish the connection (Host side)
-    async acceptAnswer(answerStr) {
-        if (!this.connection) throw new Error("No connection initialized");
-        const answer = JSON.parse(answerStr);
-        await this.connection.setRemoteDescription(new RTCSessionDescription(answer));
-    }
+            this.peer.on('connection', (conn) => {
+                this._log(LOG_LEVELS.INFO, `Incoming connection from ${conn.peer}`);
+                this._setupConnection(conn);
+            });
 
-    // Helper to ensure ICE gathering is complete
-    // Corresponds to waitForIceGathering in TeamSudoku
-    _waitForIceGathering() {
-        return new Promise(resolve => {
-            if (this.connection.iceGatheringState === 'complete') {
-                resolve();
-            } else {
-                const checkState = () => {
-                    if (this.connection.iceGatheringState === 'complete') {
-                        this.connection.removeEventListener('icegatheringstatechange', checkState);
-                        resolve();
-                    }
-                };
-                this.connection.addEventListener('icegatheringstatechange', checkState);
-            }
+            this.peer.on('error', (err) => {
+                this._log(LOG_LEVELS.ERROR, `PeerJS Error: ${err.type}`, err);
+                reject(err);
+            });
         });
     }
 
-    // Public API to send data
+    /**
+     * Joins a session hosted by another peer.
+     * @param {string} hostId The host's ID (without prefix)
+     */
+    async join(hostId) {
+        this.cleanup();
+        
+        return new Promise((resolve, reject) => {
+            // Joiner gets a random ID
+            this.peer = new window.Peer(undefined, { debug: 2 });
+
+            this.peer.on('open', (id) => {
+                this._log(LOG_LEVELS.INFO, `Joiner Peer opened with ID: ${id}`);
+                const fullHostId = `${this.peerPrefix}${hostId}`;
+                const conn = this.peer.connect(fullHostId, { reliable: true });
+                this._setupConnection(conn);
+                resolve();
+            });
+
+            this.peer.on('error', (err) => {
+                this._log(LOG_LEVELS.ERROR, `PeerJS Error: ${err.type}`, err);
+                reject(err);
+            });
+        });
+    }
+
+    _setupConnection(conn) {
+        this.conn = conn;
+
+        conn.on('open', () => {
+            this._log(LOG_LEVELS.INFO, 'Data connection established.');
+            if (this.onStatusChangeCallback) this.onStatusChangeCallback('connected');
+            this.sendIdentity();
+        });
+
+        conn.on('data', (data) => {
+            if (this.onMessageCallback) this.onMessageCallback(data);
+        });
+
+        conn.on('close', () => {
+            this._log(LOG_LEVELS.WARNING, 'Connection closed.');
+            this.conn = null;
+            if (this.onStatusChangeCallback) this.onStatusChangeCallback('disconnected');
+        });
+
+        conn.on('error', (err) => {
+            this._log(LOG_LEVELS.ERROR, 'Connection error:', err);
+        });
+    }
+
+    cleanup() {
+        if (this.conn) {
+            this.conn.close();
+            this.conn = null;
+        }
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+    }
+
     send(data) {
-        if (this.dataChannel && this.dataChannel.readyState === 'open') {
-            this.dataChannel.send(JSON.stringify(data));
+        if (this.conn && this.conn.open) {
+            this.conn.send(data);
         } else {
-            console.warn("Data channel not open");
+            this._log(LOG_LEVELS.WARNING, "Cannot send data, connection not open.");
+        }
+    }
+
+    _log(level, message, ...args) {
+        if (this.loggingService) {
+            this.loggingService.log(LOG_CATEGORIES.NETWORK, level, message, ...args);
+        } else {
+            console.log(`[NETWORK] ${message}`, ...args);
         }
     }
 

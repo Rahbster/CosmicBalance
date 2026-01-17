@@ -1,7 +1,8 @@
 import { LOG_LEVELS, LOG_CATEGORIES } from '../cb_constants.js';
 
 export class LoggingService {
-    constructor() {
+    constructor(storageService) {
+        this.storageService = storageService;
         // Default configuration: Info level for System, Warning for others to reduce noise
         this.config = {
             [LOG_CATEGORIES.SYSTEM]: LOG_LEVELS.INFO,
@@ -46,18 +47,13 @@ export class LoggingService {
     }
 
     saveConfig() {
-        localStorage.setItem('logging_config', JSON.stringify(this.config));
+        if (this.storageService) this.storageService.saveLoggingConfig(this.config);
     }
     
     loadConfig() {
-        const saved = localStorage.getItem('logging_config');
+        const saved = this.storageService ? this.storageService.getLoggingConfig() : null;
         if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                this.config = { ...this.config, ...parsed };
-            } catch (e) {
-                console.error("Failed to load logging config", e);
-            }
+            this.config = { ...this.config, ...saved };
         }
     }
 }

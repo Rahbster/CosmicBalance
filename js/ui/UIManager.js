@@ -1,15 +1,17 @@
 import { RESOURCE_TYPES, FACTION_COLORS } from '../cb_constants.js';
 
 export class UIManager {
-    constructor(gameEngine) {
+    constructor(gameEngine, storageService) {
         this.gameEngine = gameEngine;
+        this.storageService = storageService;
         this.colorPicker = document.getElementById('faction-color-picker'); // This element is bound in app.js
         this.systemListContainer = document.getElementById('system-list'); // Cache this element
     }
 
     setTheme(theme) {
         document.body.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
+        if (this.storageService) this.storageService.saveTheme(theme);
+        else localStorage.setItem('theme', theme);
         const themeToggle = document.getElementById('theme-toggle');
         if (themeToggle) {
             themeToggle.textContent = theme === 'dark' ? '☀️' : '🌓';

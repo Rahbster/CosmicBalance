@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cosmic-balance-v12';
+const CACHE_NAME = 'cosmic-balance-v16';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -23,6 +23,7 @@ const ASSETS_TO_CACHE = [
     './js/services/SpriteService.js',
     './js/services/FleetService.js',
     './js/services/ProfileService.js',
+    './js/services/StorageService.js',
     './js/modals/FleetManagerModal.js',
     './js/modals/TechTreeModal.js',
     './js/modals/LoggingModal.js',
@@ -35,7 +36,6 @@ const ASSETS_TO_CACHE = [
     './js/ToastManager.js',
     './js/ChatManager.js',
     './js/cb_constants.js',
-    './js/signaling-service.js',
     './js/modals/peer_connection_modal.js',
     './js/peerjs.min.js',
     './manifest.json',
@@ -59,11 +59,25 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
     self.skipWaiting(); // Force the waiting service worker to become the active service worker
     event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => {
-                console.log('Opened cache');
-                return cache.addAll(ASSETS_TO_CACHE);
-            })
+        (async () => {
+            const cache = await caches.open(CACHE_NAME);
+            console.log('Opened cache');
+            
+            // Use a more robust caching method that doesn't fail if one file is missing.
+            const cachePromises = ASSETS_TO_CACHE.map(async (url) => {
+                try {
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        await cache.put(url, response);
+                    } else {
+                        console.warn(`Failed to cache ${url}: ${response.status} ${response.statusText}`);
+                    }
+                } catch (error) {
+                    console.warn(`Failed to cache ${url}:`, error);
+                }
+            });
+            await Promise.all(cachePromises);
+        })()
     );
 });
 

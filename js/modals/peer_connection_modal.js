@@ -1,5 +1,5 @@
 export function showPeerConnectionModal(toastManager, config) {
-    const { signaling, peerManager, getIdentity, onConnection } = config;
+    const { peerManager, getIdentity, onConnection } = config;
     const appPrefix = 'pwa';
 
     // 1. Inject CSS if not present
@@ -135,22 +135,10 @@ export function showPeerConnectionModal(toastManager, config) {
     // 5. Connection Logic
     async function startHosting(hostId) {
         try {
-            const id = await signaling.initHost(hostId);
+            const id = await peerManager.host(hostId);
             dom.hostIdDisplay.textContent = id;
             dom.hostShareInfo.classList.remove('hidden');
-
-            signaling.onConnected = async () => {
-                const offer = await peerManager.createOffer();
-                signaling.send({ type: 'offer', sdp: offer });
-            };
-
-            signaling.onMessage = async (data) => {
-                if (data.type === 'answer') {
-                    await peerManager.acceptAnswer(data.sdp);
-                    closeModal();
-                    if (onConnection) onConnection();
-                }
-            };
+            toastManager.show('Session started. Waiting for peer...', 'info');
         } catch (err) {
             toastManager.show("Hosting Error: " + err.message, 'error');
         }
@@ -158,15 +146,9 @@ export function showPeerConnectionModal(toastManager, config) {
 
     async function startJoining(hostId) {
         try {
-            await signaling.initJoiner(hostId);
-            signaling.onMessage = async (data) => {
-                if (data.type === 'offer') {
-                    const answer = await peerManager.createAnswer(data.sdp);
-                    signaling.send({ type: 'answer', sdp: answer });
-                    closeModal();
-                    if (onConnection) onConnection();
-                }
-            };
+            await peerManager.join(hostId);
+            closeModal();
+            if (onConnection) onConnection();
         } catch (err) {
             toastManager.show("Joining Error: " + err.message, 'error');
         }
