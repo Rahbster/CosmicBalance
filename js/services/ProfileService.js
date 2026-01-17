@@ -19,10 +19,10 @@ export class ProfileService {
         if (this.storageService) this.storageService.setItem(`${this.appPrefix}_display_name`, name);
     }
 
-    savePeer(guid, name) {
+    savePeer(guid, name, team) {
         if (this.getIdentity().id === guid) return; // Don't save self
         let peers = this.getPeers();
-        peers[guid] = { name, lastSeen: Date.now() };
+        peers[guid] = { name, team, lastSeen: Date.now() };
         if (this.storageService) this.storageService.setItem(`${this.appPrefix}_peers`, peers);
     }
 

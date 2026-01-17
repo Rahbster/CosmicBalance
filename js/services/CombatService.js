@@ -12,6 +12,7 @@ export class CombatService {
         this.engine.state.systems.forEach(sys => {
             const orbitingShips = this.engine.state.ships.filter(ship => {
                 if (ship.scoutMission) return false; // Ships on a scout mission do not participate in or trigger combat
+                if (ship.isBuilding) return false; // Ships under construction cannot fight
                 const dx = sys.x - ship.x;
                 const dy = sys.y - ship.y;
                 return (dx * dx + dy * dy) <= (this.engine.spatialService.getSystemEffectiveRadius(sys) ** 2);

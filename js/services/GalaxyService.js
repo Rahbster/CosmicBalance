@@ -36,22 +36,22 @@ export const PLANET_TYPES = {
     Terran: {
         color: '#0080FF',
         radius: 4,
-        yields: { IO: 10, minerals: 5, food: 20, energy: 5, scrap: 2 }
+        yields: { IO: 10, minerals: 5, energy: 5, scrap: 2 }
     },
     Industrial: {
         color: '#A9A9A9',
         radius: 3.5,
-        yields: { IO: 25, minerals: 10, food: 5, energy: 10, scrap: 5 }
+        yields: { IO: 25, minerals: 10, energy: 10, scrap: 5 }
     },
     Mining: {
         color: '#8B4513',
         radius: 2.5,
-        yields: { IO: 5, minerals: 50, food: 2, energy: 2, scrap: 10 }
+        yields: { IO: 5, minerals: 50, energy: 2, scrap: 10 }
     },
     Farming: {
         color: '#228B22',
         radius: 3,
-        yields: { IO: 5, minerals: 2, food: 100, energy: 2, scrap: 1 }
+        yields: { IO: 5, minerals: 2, energy: 2, scrap: 1 }
     },
 };
 

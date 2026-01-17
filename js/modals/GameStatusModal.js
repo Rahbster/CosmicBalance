@@ -220,7 +220,7 @@ export class GameStatusModal {
                 }
                 const res = p.totalResources;
                 // Sum of all resources as a simple metric for "Total Gathered"
-                const total = (res.IO||0) + (res.minerals||0) + (res.energy||0) + (res.food||0) + (res.scrap||0);
+                const total = (res.IO||0) + (res.minerals||0) + (res.energy||0) + (res.scrap||0);
                 if (total > maxVal) maxVal = total;
                 players[p.id].data.push({ time: report.gameTimeSeconds, value: total });
             });

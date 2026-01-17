@@ -260,7 +260,7 @@ export class GameEngine {
     }
 
     async createNewGame(config) {
-        const { numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
+        const { numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
     
         this.isHost = true;
         this.paused = false; // Explicitly reset pause state for a new game
@@ -272,27 +272,32 @@ export class GameEngine {
         this.state.players = [];
         this.state.gameTime = 0;
 
-        if (!isSpectator) {
-            const humanColor = availableColors.splice(0, 1)[0];
-            this.state.players.push({ 
-                id: this.getIdentity().guid, 
-                factionName: this.getIdentity().name,
-                team: this.getIdentity().name, // Faction Name (Alliance)
-                techBase: this.getTeam(), // Tech Tree / Visuals
-                color: humanColor,
-                isAI: false, 
-                resources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 }, 
-                totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
-                researchedTechs: [], 
-                researchQueue: [], 
-                fleets: [],
-                designs: [] // Player's custom designs
+        if (humanPlayers && humanPlayers.length > 0) {
+            humanPlayers.forEach(human => {
+                const humanColor = availableColors.splice(0, 1)[0];
+                this.state.players.push({
+                    id: human.guid,
+                    factionName: human.name,
+                    team: human.name,
+                    techBase: human.team || 'UNSC', // Use the human's team, fallback to UNSC
+                    color: humanColor,
+                    isAI: false,
+                    resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+                    totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+                    researchedTechs: [],
+                    researchQueue: [],
+                    fleets: [],
+                    designs: []
+                });
             });
-            this.hostView.mode = 'player';
-            this.hostView.selectedPlayerIds = [this.getIdentity().guid];
-        } else {
+        }
+
+        if (isSpectator) {
             this.hostView.mode = 'god';
             this.hostView.selectedPlayerIds = [];
+        } else {
+            this.hostView.mode = 'player';
+            this.hostView.selectedPlayerIds = [this.getIdentity().guid];
         }
 
         // Add resources to AI players
@@ -312,8 +317,8 @@ export class GameEngine {
                 factionName: `${profileName} AI ${i + 1}`, 
                 aiProfile: profileKey,
                 color: availableColors.splice(0, 1)[0], 
-                resources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 }, 
-                totalResources: { IO: 500, minerals: 200, food: 300, scrap: 200, energy: 200 },
+                resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 }, 
+                totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
                 researchedTechs: [], 
                 researchQueue: [], 
                 fleets: [],
@@ -492,8 +497,76 @@ export class GameEngine {
         this.economyService.requestBuild(shipType, count);
     }
 
+    addPlayer(id, name, role = 'player') {
+        if (!this.isHost) return;
+
+        // 1. Check if player already exists (Re-join)
+        let player = this.state.players.find(p => p.id === id);
+        if (player) {
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Player ${name} re-joined.`);
+            player.factionName = name; // Update name in case it changed
+            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
+            return;
+        }
+
+        if (role === 'spectator') {
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `User ${name} joined as Spectator.`);
+            this.broadcast({ type: 'GAME_TOAST', message: `${name} joined as spectator.`, toastType: 'info' });
+            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
+            return;
+        }
+
+        // 2. Try to convert an AI player to Human (Drop-in)
+        const aiPlayer = this.state.players.find(p => p.isAI && !p.isDead);
+        if (aiPlayer) {
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Converting AI ${aiPlayer.factionName} to Human Player ${name}`);
+            
+            aiPlayer.id = id;
+            aiPlayer.factionName = name;
+            aiPlayer.isAI = false;
+            delete aiPlayer.aiProfile; // Remove AI behavior
+            delete aiPlayer.aiGoal;
+
+            // Notify everyone of the update
+            this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: id, update: aiPlayer });
+            this.broadcast({ type: 'GAME_TOAST', message: `${name} has joined the game!`, toastType: 'success' });
+            
+            // Send full state to the new player
+            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
+            return;
+        }
+
+        // 3. If no AI to convert, try to spawn new (if map allows)
+        const unownedSystem = this.state.systems.find(s => !s.owner && (!s.planets || !s.planets.some(p => p.owner)));
+        
+        if (unownedSystem) {
+            const availableColors = FACTION_COLORS.filter(c => !this.state.players.some(p => p.color === c));
+            const color = availableColors.length > 0 ? availableColors[0] : '#FFFFFF';
+
+            const newPlayer = {
+                id: id, factionName: name, team: name, techBase: 'UNSC', color: color, isAI: false,
+                resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+                totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+                researchedTechs: [], researchQueue: [], fleets: [], designs: []
+            };
+
+            this.state.players.push(newPlayer);
+            this._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
+            this._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
+            
+            unownedSystem.owner = newPlayer.id;
+            unownedSystem.visibility[newPlayer.id] = 'explored';
+            
+            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
+        } else {
+            // Game full - Spectator
+            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
+            if (window.toastManager) window.toastManager.show(`Game full! ${name} joined as spectator.`, 'warning');
+        }
+    }
+
     // Internal method to create and broadcast a ship. Does not handle costs.
-    _spawnShip(owner, type, position, spawnInSystem = null) {
+    _spawnShip(owner, type, position, spawnInSystem = null, overrides = {}) {
         const id = crypto.randomUUID();
         const baseData = { ...SHIP_DATA[type] }; // Create a mutable copy
         const ownerPlayer = this.state.players.find(p => p.id === owner.id);
@@ -555,6 +628,7 @@ export class GameEngine {
             moveState: SHIP_STATE.IDLE,
             vintageTechs: ownerPlayer ? [...ownerPlayer.researchedTechs] : [],
             currentSystemId: null,
+            ...overrides
         };
 
         if (ship.isStation) {
@@ -574,7 +648,7 @@ export class GameEngine {
             });
             if (detectedSystem) ship.currentSystemId = detectedSystem.id;
         }
-
+        return ship;
     }
 
     async start() {
@@ -683,7 +757,7 @@ export class GameEngine {
                 planetTypeCounts[pl.type] = (planetTypeCounts[pl.type] || 0) + 1;
             });
 
-            const totalRes = p.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+            const totalRes = p.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
 
             report.players.push({
                 id: p.id,
@@ -729,6 +803,7 @@ export class GameEngine {
         if (this.victoryCheckTimer >= this.victoryCheckInterval) {
             this.victoryCheckTimer = 0;
             
+            const defeatedPlayers = [];
             this.state.players.forEach(p => {
                 if (p.isDead) return;
 
@@ -736,17 +811,111 @@ export class GameEngine {
                 const hasPlanets = this.state.systems.some(sys => sys.planets.some(pl => pl.owner === p.id));
 
                 if (!hasShips && !hasPlanets) {
-                    p.isDead = true;
-                    this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `VICTORY CHECK: Player ${p.factionName} has been eliminated.`);
-                    this.broadcast({ 
-                        type: 'GAME_TOAST', 
-                        message: `${p.factionName} has been eliminated!`, 
-                        toastType: 'warning' 
-                    });
-                    this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: p.id, update: { isDead: true } });
+                    defeatedPlayers.push(p);
+                }
+            });
+
+            defeatedPlayers.forEach(p => {
+                p.isDead = true;
+                this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `VICTORY CHECK: Player ${p.factionName} has been eliminated.`);
+                this.broadcast({ 
+                    type: 'GAME_TOAST', 
+                    message: `${p.factionName} has been eliminated!`, 
+                    toastType: 'warning' 
+                });
+                this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: p.id, update: { isDead: true } });
+
+                if (p.isAI) {
+                    this.replaceAIPlayer(p);
                 }
             });
         }
+    }
+
+    replaceAIPlayer(deadPlayer) {
+        // Find a system with no owner and no planet owners
+        const unownedSystems = this.state.systems.filter(s => !s.owner && (!s.planets || !s.planets.some(pl => pl.owner)));
+        
+        if (unownedSystems.length === 0) {
+            // No room for new AI. Remove the dead player to clean up.
+            this.state.players = this.state.players.filter(p => p.id !== deadPlayer.id);
+            this.broadcast({ type: 'GAME_SET_STATE', state: this.state });
+            return;
+        }
+
+        const unownedSystem = unownedSystems[Math.floor(Math.random() * unownedSystems.length)];
+        
+        // Pick a new profile
+        const profileKeys = Object.keys(AI_PROFILES);
+        let newProfileKey = profileKeys[Math.floor(Math.random() * profileKeys.length)];
+        // Try to avoid the same profile if possible
+        if (profileKeys.length > 1 && newProfileKey === deadPlayer.aiProfile) {
+             const otherKeys = profileKeys.filter(k => k !== deadPlayer.aiProfile);
+             if (otherKeys.length > 0) {
+                 newProfileKey = otherKeys[Math.floor(Math.random() * otherKeys.length)];
+             }
+        }
+        const profileName = AI_PROFILES[newProfileKey].name;
+
+        // Create new player
+        const newId = `AI_${crypto.randomUUID().split('-')[0]}`;
+        // Ensure unique name
+        let nameSuffix = 1;
+        let newName = `${profileName} AI ${nameSuffix}`;
+        while (this.state.players.some(p => p.factionName === newName)) {
+            nameSuffix++;
+            newName = `${profileName} AI ${nameSuffix}`;
+        }
+
+        const newPlayer = {
+            id: newId,
+            factionName: newName,
+            team: newName,
+            techBase: 'COVENANT', // AI Default
+            color: deadPlayer.color, // Reuse color
+            isAI: true,
+            aiProfile: newProfileKey,
+            resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+            totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
+            researchedTechs: [],
+            researchQueue: [],
+            fleets: [],
+            designs: []
+        };
+
+        this.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Replacing ${deadPlayer.factionName} with ${newPlayer.factionName} in ${unownedSystem.name}`);
+
+        // Replace in array
+        const idx = this.state.players.indexOf(deadPlayer);
+        if (idx !== -1) {
+            this.state.players[idx] = newPlayer;
+        } else {
+            this.state.players.push(newPlayer);
+        }
+
+        // Setup System
+        unownedSystem.owner = newPlayer.id;
+        unownedSystem.visibility[newPlayer.id] = 'explored';
+        
+        // Claim a planet
+        if (unownedSystem.planets && unownedSystem.planets.length > 0) {
+            const homePlanet = unownedSystem.planets[0];
+            homePlanet.owner = newPlayer.id;
+            homePlanet.captureProgress = 100;
+        }
+
+        // Spawn Ships
+        this._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
+        this._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
+
+        this.broadcast({ 
+            type: 'GAME_TOAST', 
+            message: `A new faction, ${newPlayer.factionName}, has entered the galaxy!`, 
+            toastType: 'info' 
+        });
+        
+        // Full state update required because player list changed
+        this.broadcast({ type: 'GAME_SET_STATE', state: this.state });
     }
 
     runHeatDecay(dt) {
@@ -942,6 +1111,9 @@ export class GameEngine {
                     if (data.owner !== undefined) planet.owner = data.owner;
                     if (data.captureProgress !== undefined) planet.captureProgress = data.captureProgress;
                     if (data.capturingTeam !== undefined) planet.capturingTeam = data.capturingTeam;
+                    if (data.systemOwner !== undefined && (!data.systemId || data.systemId === system.id)) {
+                        system.owner = data.systemOwner;
+                    }
                     break;
                 }
             }

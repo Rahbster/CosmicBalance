@@ -34,6 +34,7 @@ if (savedTheme) {
 
 const peerManager = new PeerManager(profileService, loggingService);
 let currentRemoteName = 'Peer';
+let currentRemoteIdentity = null;
 
 // iOS Detection
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -125,7 +126,12 @@ peerManager.onMessage((data) => {
         // This is now handled by the client sending its own GUID.
     } else if (data.type === 'identity') {
         currentRemoteName = data.name;
-        profileService.savePeer(data.guid, data.name);
+        currentRemoteIdentity = { guid: data.guid, name: data.name, team: data.team, role: data.role }; // Store role
+        profileService.savePeer(data.guid, data.name, data.team);
+        // If we are the host and a game is running, try to add the player
+        if (gameEngine && gameEngine.isHost) {
+            gameEngine.addPlayer(data.guid, data.name, data.role);
+        }
     } else if (data.type.startsWith('GAME_')) {
         // Pass game events to engine
         if (gameEngine) {
@@ -169,6 +175,9 @@ peerManager.onStatusChange((status) => {
         } else {
             statusEl.classList.add('disconnected');
             statusEl.title = `Disconnected (${status})`;
+            if (status !== 'connected') {
+                currentRemoteIdentity = null; // Clear the remote identity on disconnect
+            }
         }
     }
 });
@@ -964,18 +973,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // Use event delegation for the create game button which is now in a modal
     document.body.addEventListener('click', async (e) => {
         if (e.target.id === 'btn-create-game') {
+            const humanPlayers = [];
             const numSystems = parseInt(document.getElementById('galaxy-size').value, 10);
             const numAI = parseInt(document.getElementById('ai-opponents').value, 10);
             const aiPlayers = [];
             for (let i = 0; i < numAI; i++) {
                 aiPlayers.push({ id: `AI_${i + 1}`, team: `AI Faction ${i + 1}`, techBase: 'COVENANT', isAI: true });
             }
+
+            const isSpectator = document.getElementById('spectator-mode').checked;
+            if (!isSpectator) {
+                humanPlayers.push({ ...profileService.getIdentity(), team: profileService.getTeam() });
+            }
+            if (peerManager.conn && peerManager.conn.open && currentRemoteIdentity) {
+                if (currentRemoteIdentity.role !== 'spectator') {
+                    humanPlayers.push(currentRemoteIdentity);
+                }
+            }
+
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
             
             const resourceRateRaw = parseInt(document.getElementById('resource-rate').value, 10);
             const shipSpeedRateRaw = parseInt(document.getElementById('ship-speed-rate').value, 10);
-            const isSpectator = document.getElementById('spectator-mode').checked;
             const isSymmetric = document.getElementById('symmetric-map').checked;
 
             // Save configuration for next time
@@ -992,7 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const resourceRate = resourceRateVal / 100; // Convert percentage to multiplier
             const shipSpeedRate = shipSpeedRateRaw / 100; // Convert percentage to multiplier
 
-            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric });
+            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
             updateHeaderControls();
             toastManager.show('New game created and sent to peers!', 'success');

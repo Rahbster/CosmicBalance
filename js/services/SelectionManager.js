@@ -195,7 +195,7 @@ export class SelectionManager {
             <p>Owner: ${owner?.factionName || 'Unknown'}</p>
             ${fleetInfoHtml}
             <p>Location: ${locationName}</p>
-            <p>Hull: ${ship.hull} / ${ship.maxHull}</p>
+            <p>Hull: ${Math.round(ship.hull)} / ${Math.round(ship.maxHull)}</p>
             ${this._renderRepairProgress(ship)}
             ${navHtml}
             <div class="context-actions" style="display: flex; gap: 10px; margin-top: 1rem; flex-wrap: wrap;">
@@ -361,14 +361,14 @@ export class SelectionManager {
                         const ship = groups.upgradable[0];
                         const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
                         const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="upgrade">Upgrade</button>`;
-                        listContent += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
+                        listContent += `<li><span>${shipType}${badge} (Hull: ${Math.round(ship.hull)}/${Math.round(ship.maxHull)})</span>${buttonHtml}</li>`;
                     }
                     if (groups.repairable.length > 0) {
                         const count = groups.repairable.length;
                         const ship = groups.repairable[0];
                         const badge = count > 1 ? `<span class="queue-badge">${count}x</span>` : '';
                         const buttonHtml = `<button data-action="repair-ship-group" data-ship-type="${shipType}" data-service-type="repair">Repair</button>`;
-                        listContent += `<li><span>${shipType}${badge} (Hull: ${ship.hull}/${ship.maxHull})</span>${buttonHtml}</li>`;
+                        listContent += `<li><span>${shipType}${badge} (Hull: ${Math.round(ship.hull)}/${Math.round(ship.maxHull)})</span>${buttonHtml}</li>`;
                     }
                     if (groups.servicing.length > 0) {
                         const count = groups.servicing.length;
@@ -384,6 +384,32 @@ export class SelectionManager {
             }
         }
 
+        let researchQueueHtml = '';
+        if (builderIsOwnedByMe && localPlayer.researchQueue && localPlayer.researchQueue.length > 0) {
+            const techData = this.engine.techService.getTechData()?.[localPlayer.techBase];
+            if (techData) {
+                researchQueueHtml = '<h4>Research In Progress</h4><ul class="research-queue-list">';
+                localPlayer.researchQueue.forEach(item => {
+                    const tech = techData[item.techId];
+                    if (tech) {
+                        const totalTime = item.totalTime || tech.researchTime;
+                        const remaining = item.remainingTime;
+                        const progressPercent = totalTime > 0 ? Math.min(100, ((totalTime - remaining) / totalTime) * 100) : 0;
+                        const statusText = `${Math.ceil(Math.max(0, remaining) / 1000)}s`;
+
+                        researchQueueHtml += `<li>
+                            <div style="display:flex; justify-content:space-between; width:100%;">
+                                <span>${tech.name}</span>
+                                <span>${statusText}</span>
+                            </div>
+                            <div class="progress-bar-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>
+                        </li>`;
+                    }
+                });
+                researchQueueHtml += '</ul>';
+            }
+        }
+
         // --- Part 2: Apply updates ---
         if (isAlreadyRendered) {
             // Partial update: Only refresh the dynamic parts
@@ -393,6 +419,9 @@ export class SelectionManager {
             const repairContainer = document.getElementById('repair-bay-container');
             if (repairContainer) repairContainer.innerHTML = repairBayHtml;
             
+            const researchContainer = document.getElementById('location-research-container');
+            if (researchContainer) researchContainer.innerHTML = researchQueueHtml;
+
             container.classList.remove('hidden');
             return; // We are done, no full re-render needed.
         }
@@ -470,6 +499,7 @@ export class SelectionManager {
         // Add containers for dynamic content
         html += `<div id="build-queue-container">${buildQueueHtml}</div>`;
         html += `<div id="repair-bay-container">${repairBayHtml}</div>`;
+        html += `<div id="location-research-container">${researchQueueHtml}</div>`;
 
         container.innerHTML = html;
         container.dataset.renderedFor = builder.id; // Mark as rendered for this specific builder

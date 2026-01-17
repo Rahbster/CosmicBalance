@@ -52,7 +52,7 @@ export class AIService {
         
         // Helper to count ships including those in production
         const countShips = (type) => {
-            const inSpace = myShips.filter(s => s.type === type).length;
+            const inSpace = myShips.filter(s => s.type === type && !s.isBuilding).length;
             let inQueue = 0;
             allBuilders.forEach(b => { if (b.buildQueue) inQueue += b.buildQueue.filter(q => q.shipType === type).length; });
             return inSpace + inQueue;
@@ -269,7 +269,7 @@ export class AIService {
     }
 
     _manageUnits(aiPlayer) {
-        const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
+        const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0 && !s.isBuilding);
         
         // 1. Scouts
         const idleScouts = myShips.filter(s => s.type === 'Scout' && s.moveState === SHIP_STATE.IDLE && !s.scoutMission);

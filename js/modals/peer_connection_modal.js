@@ -40,6 +40,10 @@ export function showPeerConnectionModal(toastManager, config) {
                                 <button id="btn-disconnect-session" class="hidden" style="background-color: #c0392b; color: white; width: 100%; padding: 12px; border: none; font-weight: bold; cursor: pointer; font-size: 1.1rem; margin-bottom: 10px;">Disconnect</button>
                                 <p>Enter 6-Digit Host ID:</p>
                                 <input type="text" id="joiner-id-input" class="sdp-box" placeholder="Enter Host ID" maxlength="6" style="text-align: center; font-size: 1.5rem; letter-spacing: 4px;">
+                                <div style="margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,0.05); padding: 8px; border-radius: 4px;">
+                                    <input type="checkbox" id="join-as-spectator" style="width: 18px; height: 18px; cursor: pointer;">
+                                    <label for="join-as-spectator" style="cursor: pointer; font-weight: 500;">Join as Spectator</label>
+                                </div>
                             </div>
                         </div>
                         <input type="text" id="peer-search-input" class="sdp-box hidden" placeholder="Search peers..." style="margin-bottom: 0.5rem;">
@@ -152,8 +156,10 @@ export function showPeerConnectionModal(toastManager, config) {
     }
 
     async function startJoining(hostId) {
+        const isSpectator = document.getElementById('join-as-spectator').checked;
+        const role = isSpectator ? 'spectator' : 'player';
         try {
-            await peerManager.join(hostId);
+            await peerManager.join(hostId, role);
             closeModal();
             if (onConnection) onConnection();
         } catch (err) {

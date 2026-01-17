@@ -140,7 +140,7 @@ export class FleetManagerModal {
                         <button data-action="move-fleet" data-fleet-id="${fleet.id}">Move</button>
                         <button data-action="disband-fleet" data-fleet-id="${fleet.id}" class="destructive">Disband</button>
                     </div>
-                    <ul>${fleetShips.map(s => `<li>${s.type} (H: ${s.hull}/${s.maxHull})</li>`).join('')}</ul>
+                    <ul>${fleetShips.map(s => `<li>${s.type} (H: ${Math.round(s.hull)}/${Math.round(s.maxHull)})</li>`).join('')}</ul>
                 </div>`;
             });
         } else {
@@ -153,7 +153,7 @@ export class FleetManagerModal {
             for (const systemName in shipsBySystem) {
                 html += `<li><strong>${systemName}</strong><ul>`;
                 shipsBySystem[systemName].forEach(ship => {
-                    html += `<li><label><input type="checkbox" class="unassigned-ship-checkbox" value="${ship.id}"> ${ship.type} (H: ${ship.hull}/${ship.maxHull})</label></li>`;
+                    html += `<li><label><input type="checkbox" class="unassigned-ship-checkbox" value="${ship.id}"> ${ship.type} (H: ${Math.round(ship.hull)}/${Math.round(ship.maxHull)})</label></li>`;
                 });
                 html += '</ul></li>';
             }

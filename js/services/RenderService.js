@@ -523,13 +523,15 @@ export class RenderService {
         }
 
         // Repair/Upgrade Indicator
-        if (ship.isRepairing) {
+        if (ship.isRepairing || ship.isBuilding) {
             const iconSize = 14 / this.gameEngine.camera.zoom;
             ctx.font = `${iconSize}px sans-serif`;
             ctx.fillStyle = '#FFD700';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('🔧', 15, 0);
+            // Blink effect for building
+            const shouldDraw = !ship.isBuilding || (Math.floor(Date.now() / 500) % 2 === 0);
+            if (shouldDraw) ctx.fillText('🔧', 15, 0);
         }
 
         ctx.restore();
@@ -639,14 +641,16 @@ export class RenderService {
         }
 
         // Repair/Upgrade Indicator
-        if (ship.isRepairing) {
+        if (ship.isRepairing || ship.isBuilding) {
             // Make icon size consistent regardless of zoom
             const iconSize = 14 / this.gameEngine.camera.zoom;
             ctx.font = `${iconSize}px sans-serif`;
             ctx.fillStyle = '#FFD700'; // Gold color for the wrench
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('🔧', 15, 0); // Position to the right of the ship
+            // Blink effect for building
+            const shouldDraw = !ship.isBuilding || (Math.floor(Date.now() / 500) % 2 === 0);
+            if (shouldDraw) ctx.fillText('🔧', 15, 0); // Position to the right of the ship
         }
 
         ctx.restore();

@@ -183,6 +183,5 @@ export const RESOURCE_TYPES = [
     { key: 'IO', domId: 'res-io', label: 'IO', icon: '🪙', cssClass: 'icon-io', title: 'Inter-system Organizational Credits' },
     { key: 'minerals', domId: 'res-minerals', label: 'Minerals', icon: '💎', cssClass: 'icon-minerals', title: 'Minerals' },
     { key: 'energy', domId: 'res-energy', label: 'Energy', icon: '⚡', cssClass: 'icon-energy', title: 'Energy', threshold: 20 },
-    { key: 'food', domId: 'res-food', label: 'Food', icon: '🌾', cssClass: 'icon-food', title: 'Food', threshold: 20 },
     { key: 'scrap', domId: 'res-scrap', label: 'Scrap', icon: '⚙️', cssClass: 'icon-scrap', title: 'Scrap' }
 ];

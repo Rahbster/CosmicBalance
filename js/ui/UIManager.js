@@ -51,7 +51,7 @@ export class UIManager {
     updateHeaderUI() {
         if (!this.gameEngine) return;
         
-        let displayResources = { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+        let displayResources = { IO: 0, minerals: 0, energy: 0, scrap: 0 };
         let showUI = true;
         let viewingPlayerIds = [];
 

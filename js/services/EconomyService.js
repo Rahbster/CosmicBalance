@@ -16,7 +16,7 @@ export class EconomyService {
         this.engine.state.players.forEach(player => {
             if (player.isDead) return;
             let hasIncome = false;
-            const income = { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+            const income = { IO: 0, minerals: 0, energy: 0, scrap: 0 };
 
             // Calculate total income from all owned planets
             this.engine.state.systems.forEach(system => {
@@ -56,35 +56,28 @@ export class EconomyService {
             if (income.IO > 0) { 
                 const amount = income.IO * timeFactor;
                 player.resources.IO += amount; 
-                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                 player.totalResources.IO += amount;
                 hasIncome = true; 
             }
             if (income.minerals > 0) { 
                 const amount = income.minerals * timeFactor;
                 player.resources.minerals = (player.resources.minerals || 0) + amount; 
-                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                 player.totalResources.minerals += amount;
-                hasIncome = true; 
-            }
-            if (income.food > 0) { 
-                const amount = income.food * timeFactor;
-                player.resources.food += amount; 
-                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
-                player.totalResources.food += amount;
                 hasIncome = true; 
             }
             if (income.energy > 0) { 
                 const amount = income.energy * timeFactor;
                 player.resources.energy = (player.resources.energy || 0) + amount; 
-                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                 player.totalResources.energy += amount;
                 hasIncome = true; 
             }
             if (income.scrap > 0) { 
                 const amount = income.scrap * timeFactor;
                 player.resources.scrap += amount; 
-                player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                 player.totalResources.scrap += amount;
                 hasIncome = true; 
             }
@@ -96,7 +89,6 @@ export class EconomyService {
             this.engine.state.players.filter(p => p.isAI).forEach(p => {
                 p.resources.IO = Math.max(p.resources.IO, 10000);
                 p.resources.minerals = Math.max(p.resources.minerals, 10000);
-                p.resources.food = Math.max(p.resources.food, 10000);
                 p.resources.energy = Math.max(p.resources.energy, 10000);
                 p.resources.scrap = Math.max(p.resources.scrap, 10000);
             });
@@ -114,7 +106,7 @@ export class EconomyService {
                     const player = this.engine.state.players.find(p => p.id === ship.owner);
                     if (player) {
                         player.resources.scrap += debris.resources.scrap;
-                        player.totalResources = player.totalResources || { IO: 0, minerals: 0, food: 0, energy: 0, scrap: 0 };
+                        player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                         player.totalResources.scrap += debris.resources.scrap;
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
                         collectedDebrisIds.push(debris.id);
@@ -138,7 +130,7 @@ export class EconomyService {
                 const shipData = SHIP_DATA[firstItem.shipType];
                 const shipCost = shipData.cost;
 
-                // Check if we have started this item's timer
+                // 1. Start the build if not started
                 if (firstItem.startTime === undefined) {
                     // Check for resources
                     if (owner && owner.resources.IO >= (shipCost.credits || 0) && owner.resources.scrap >= (shipCost.scrap || 0) && owner.resources.energy >= (shipCost.energy || 0)) {
@@ -147,28 +139,59 @@ export class EconomyService {
                         owner.resources.scrap -= (shipCost.scrap || 0);
                         owner.resources.energy -= (shipCost.energy || 0);
                         firstItem.startTime = this.engine.lastTime;
+                        
+                        // Spawn the ship immediately in "Building" state
+                        let spawnSystem = null;
+                        if (location.isStation) {
+                            spawnSystem = this.engine.spatialService.getCurrentSystem(location);
+                        } else {
+                            spawnSystem = location;
+                        }
+                        const ship = this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem, { isBuilding: true, hull: 1 });
+                        firstItem.shipId = ship.id;
+
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: owner.id, resources: owner.resources });
                         // Broadcast that the queue has changed (item started)
                         this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
                     }
                 }
-                // If timer has started, process it
+                
+                // 2. Process active build
                 if (firstItem.startTime !== undefined) {
                     // Rush construction if rich (Money talks)
                     let speedMultiplier = 1;
                     if (owner.resources.IO > 1000000) speedMultiplier = 5;
                     else if (owner.resources.IO > 500000) speedMultiplier = 2;
+
+                    // Damaged stations are less effective at building
+                    if (location.isStation) {
+                        const healthRatio = location.maxHull > 0 ? location.hull / location.maxHull : 0;
+                        speedMultiplier *= Math.max(0.1, healthRatio);
+                    }
+
                     firstItem.remainingTime -= (dt * speedMultiplier);
+
+                    // Update visual progress of the building ship
+                    const ship = this.engine.state.ships.find(s => s.id === firstItem.shipId);
+                    if (ship) {
+                        const totalTime = shipData.buildTime;
+                        const progress = Math.max(0, 1 - (firstItem.remainingTime / totalTime));
+                        ship.hull = Math.max(1, ship.maxHull * progress);
+                    }
+
                     if (firstItem.remainingTime <= 0) {
                         // Build complete
-                        let spawnSystem = null;
-                        if (location.isStation) {
-                            spawnSystem = this.engine.spatialService.getCurrentSystem(location);
+                        if (ship) {
+                            delete ship.isBuilding;
+                            ship.hull = ship.maxHull;
+                            ship.shield = ship.maxShield;
+                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isBuilding: false, hull: ship.hull, shield: ship.shield });
                         } else {
-                            spawnSystem = location; // It is a system
+                            // Fallback if ship was destroyed or lost during build (unlikely)
+                            let spawnSystem = location.isStation ? this.engine.spatialService.getCurrentSystem(location) : location;
+                            this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem);
                         }
-
-                        this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem);
+                        
                         location.buildQueue.shift();
                         // Broadcast that the queue has changed (item finished)
                         this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
@@ -205,24 +228,67 @@ export class EconomyService {
                 // This single message updates both resources and research queue for the UI
                 this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources, researchQueue: player.researchQueue });
             });
+
+            // Broadcast updates for ships that are repairing or building to show progress bars on clients
+            const activeShips = this.engine.state.ships.filter(s => s.isRepairing || s.isBuilding);
+            activeShips.forEach(s => {
+                 this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: s.id, hull: s.hull });
+            });
         }
     }
 
     runRepairJobs(dt) {
+        // Group repairs by location to enforce sequential repair queue
+        const repairsByLocation = {};
+        
         this.engine.state.ships.forEach(ship => {
-            if (ship.isRepairing && ship.repairTimer > 0) {
-                ship.repairTimer -= dt;
+            if (ship.isRepairing) {
+                if (ship.isBuilding) return; // Cannot repair while under construction
+
+                const system = this.engine.spatialService.getCurrentSystem(ship);
+                const locId = system ? system.id : 'deep_space';
+                if (!repairsByLocation[locId]) repairsByLocation[locId] = [];
+                repairsByLocation[locId].push(ship);
+            }
+        });
+
+        Object.entries(repairsByLocation).forEach(([locId, ships]) => {
+            // Only process the first ship in the queue for this location
+            const ship = ships[0];
+            
+            if (ship.repairTimer > 0) {
+                let efficiency = 1.0;
+                
+                // If repairing at a location with a station, use station's health for efficiency
+                if (locId !== 'deep_space') {
+                    const station = this.engine.state.ships.find(s => 
+                        s.isStation && s.owner === ship.owner && s.currentSystemId === locId
+                    );
+                    if (station) {
+                        const healthRatio = station.maxHull > 0 ? station.hull / station.maxHull : 0;
+                        efficiency = Math.max(0.1, healthRatio);
+                    }
+                }
+
+                ship.repairTimer -= (dt * efficiency);
+
+                // Visual Progress: Incrementally repair hull
+                if (ship.initialHull === undefined) ship.initialHull = ship.hull;
+                const totalDuration = ship.totalRepairTime || 15000;
+                const progress = 1 - (ship.repairTimer / totalDuration);
+                const targetHull = ship.initialHull + (ship.maxHull - ship.initialHull) * progress;
+                ship.hull = Math.min(ship.maxHull, targetHull);
 
                 if (ship.repairTimer <= 0) {
                     const ownerPlayer = this.engine.state.players.find(p => p.id === ship.owner);
                     const baseData = { ...SHIP_DATA[ship.type] };
                     const modifiedData = this.engine.techService.applyTechToShipData(baseData, ownerPlayer);
 
-                    // Apply the upgrade/repair
+                    // Apply the upgrade/repair completion
                     ship.maxHull = Math.round(modifiedData.maxHull);
-                    ship.hull = ship.maxHull; // Full repair
+                    ship.hull = ship.maxHull; // Ensure full repair
                     ship.maxShield = Math.round(modifiedData.maxShield);
-                    ship.shield = ship.maxShield; // Also restore shields
+                    ship.shield = ship.maxShield; // Restore shields
                     ship.damage = modifiedData.damage;
                     ship.sublight = modifiedData.sublight;
                     ship.warp = modifiedData.warp;
@@ -231,6 +297,7 @@ export class EconomyService {
                     delete ship.isRepairing;
                     delete ship.repairTimer;
                     delete ship.totalRepairTime;
+                    delete ship.initialHull;
 
                     // Broadcast the full update
                     this.engine.broadcast({ 
@@ -244,7 +311,7 @@ export class EconomyService {
                         sublight: ship.sublight,
                         warp: ship.warp,
                         vintageTechs: ship.vintageTechs,
-                        isRepairing: false // Explicitly set to false to trigger deletion on client
+                        isRepairing: false
                     });
                 }
             }
@@ -472,6 +539,11 @@ export class EconomyService {
             return;
         }
 
+        if (ship.isBuilding) {
+            this.engine.loggingService.log(LOG_CATEGORIES.ECONOMY, LOG_LEVELS.WARNING, `[Repair] Cannot repair ship ${shipId} while it is under construction.`);
+            return;
+        }
+
         const needsRepair = ship.hull < ship.maxHull;
         const canUpgrade = player.researchedTechs.length > (ship.vintageTechs?.length || 0);
 
@@ -485,6 +557,7 @@ export class EconomyService {
             ship.isRepairing = true;
             ship.repairTimer = 15000; // 15 seconds for any service
             ship.totalRepairTime = 15000;
+            ship.initialHull = ship.hull; // Store initial hull for progress calculation
             
             this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
             this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isRepairing: true, repairTimer: 15000, totalRepairTime: 15000 });

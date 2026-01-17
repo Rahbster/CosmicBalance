@@ -64,9 +64,11 @@ export class PeerManager {
     /**
      * Joins a session hosted by another peer.
      * @param {string} hostId The host's ID (without prefix)
+     * @param {string} role The role of the joiner ('player' or 'spectator')
      */
-    async join(hostId) {
+    async join(hostId, role = 'player') {
         this.cleanup();
+        this.joinRole = role;
         
         return new Promise((resolve, reject) => {
             // Joiner gets a random ID
@@ -152,10 +154,13 @@ export class PeerManager {
     // Sends this user's identity to the connected peer
     sendIdentity() {
         const identity = this.profileService.getIdentity();
+        const team = this.profileService.getTeam(); // Get the team
         this.send({
             type: 'identity',
             guid: identity.guid,
-            name: identity.name
+            name: identity.name,
+            team: team,
+            role: this.joinRole || 'player'
         });
     }
 
