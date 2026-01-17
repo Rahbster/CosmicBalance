@@ -7,6 +7,21 @@ export class RenderService {
         this.ctx = canvas.getContext('2d');
         this.gameEngine = gameEngine;
         this.spriteService = spriteService;
+
+        // Background Assets
+        this.backgroundImage = new Image();
+        this.backgroundImage.src = 'assets/icons/icon-512.png';
+        
+        this.stars = [];
+        // Generate random background stars
+        for (let i = 0; i < 150; i++) {
+            this.stars.push({
+                x: Math.random(),
+                y: Math.random(),
+                size: Math.random() * 1.5 + 0.5,
+                opacity: Math.random() * 0.4 + 0.1
+            });
+        }
     }
 
     draw() {
@@ -17,6 +32,9 @@ export class RenderService {
 
         // Clear background
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw Background Stars (Screen Space)
+        this.drawStars(ctx, pan);
 
         ctx.save();
         ctx.translate(pan.x, pan.y);
@@ -41,13 +59,10 @@ export class RenderService {
         // 0. Draw Fog of War on top of the game world
         this.drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility);
 
-        // 1. Draw Links (Warp lanes)
-        this.drawLinks(ctx, state.systems, viewingIds, isHostGodView, checkVisibility);
+        // 0.1 Draw Watermark (World Space)
+        this.drawWatermark(ctx);
 
-        // 2. Draw Systems (Stars and Planets)
-        state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
-
-        // 3. Draw Debris
+        // 0.5. Draw Debris (Behind everything else)
         state.debrisFields.forEach(debris => {
             if (isHostGodView) {
                 this.drawDebris(ctx, debris);
@@ -64,6 +79,12 @@ export class RenderService {
                 if (isVisible) this.drawDebris(ctx, debris);
             }
         });
+
+        // 1. Draw Links (Warp lanes)
+        this.drawLinks(ctx, state.systems, viewingIds, isHostGodView, checkVisibility);
+
+        // 2. Draw Systems (Stars and Planets)
+        state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
 
         // 4. Draw Fleet Movement Paths
         this.drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView);
@@ -113,6 +134,57 @@ export class RenderService {
         this.drawSelection(ctx, checkVisibility, visibleShips);
 
         ctx.restore();
+    }
+
+    drawWatermark(ctx) {
+        if (this.backgroundImage.complete && this.backgroundImage.naturalWidth !== 0) {
+            const systems = this.gameEngine.state.systems;
+            if (!systems || systems.length === 0) return;
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const s of systems) {
+                if (s.x < minX) minX = s.x;
+                if (s.x > maxX) maxX = s.x;
+                if (s.y < minY) minY = s.y;
+                if (s.y > maxY) maxY = s.y;
+            }
+
+            const width = maxX - minX;
+            const height = maxY - minY;
+            const size = Math.max(width, height) * 1.5; // Scale up to cover the area comfortably
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            ctx.save();
+            ctx.globalAlpha = 0.05; // Very subtle watermark
+            ctx.drawImage(this.backgroundImage, centerX - size / 2, centerY - size / 2, size, size);
+            ctx.restore();
+        }
+    }
+
+    drawStars(ctx, pan) {
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+
+        ctx.fillStyle = '#FFFFFF';
+        this.stars.forEach(star => {
+            // Parallax factor: smaller stars move slower (further away)
+            const factor = 0.1 * star.size; 
+            
+            // Calculate wrapped position based on camera pan
+            let x = (star.x * width + pan.x * factor) % width;
+            let y = (star.y * height + pan.y * factor) % height;
+            
+            // Handle negative modulo
+            if (x < 0) x += width;
+            if (y < 0) y += height;
+
+            ctx.globalAlpha = star.opacity;
+            ctx.beginPath();
+            ctx.arc(x, y, star.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
     }
 
     drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility) {

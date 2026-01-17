@@ -695,8 +695,14 @@ export class GameEngine {
     }
 
     loop(timestamp) {
-        const dt = Math.max(0, timestamp - this.lastTime);
+        let dt = Math.max(0, timestamp - this.lastTime);
         this.lastTime = timestamp;
+
+        // Cap dt to prevent massive simulation jumps after sleep/suspend
+        if (dt > 1000) {
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.WARNING, `[GameEngine] Large time delta detected (${dt}ms). Clamping to 100ms.`);
+            dt = 100; 
+        }
 
         // Simulation delta time. If paused, simulation stops.
         const simDt = this.paused ? 0 : dt * (this.timeScale || 1.0);

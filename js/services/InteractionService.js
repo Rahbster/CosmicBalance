@@ -188,9 +188,15 @@ export class InteractionService {
 
                     if (!moveSuccessful) {
                         this.engine.selectionManager.setSelectedLocation(system.id);
-                        this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
-                            detail: { entity: system, x: e.clientX, y: e.clientY } 
-                        }));
+                        
+                        // Only show radial menu if clicking the star itself
+                        const dx = system.x - x;
+                        const dy = system.y - y;
+                        if ((dx * dx + dy * dy) <= (system.r + 5) * (system.r + 5)) {
+                            this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                                detail: { entity: system, x: e.clientX, y: e.clientY } 
+                            }));
+                        }
                     }
                     return; // Stop processing if we handled a system
                 } else if (target.type === 'debris') {
