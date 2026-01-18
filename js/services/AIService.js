@@ -5,9 +5,9 @@ export const AI_PROFILES = {
     BALANCED: { name: 'Balanced', scoutCap: 2, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 2, fleetSize: 3, aggressiveness: 0.5, retreatThreshold: 0.5, engageThreshold: 1.1, expansionBias: 0.5, researchPriority: 0.5, shipPreference: ['Cruiser', 'Destroyer', 'Frigate', 'Fighter'], repairStrategy: 'VALUE' },
     AGGRESSIVE: { name: 'Aggressive', scoutCap: 1, salvagerCap: 0, transportRatio: 5, minCombatForTransport: 2, fleetSize: 4, aggressiveness: 0.9, retreatThreshold: 0.3, engageThreshold: 0.8, expansionBias: 0.35, researchPriority: 0.3, shipPreference: ['Cruiser', 'Destroyer', 'Fighter'], repairStrategy: 'SPEED' },
     DEFENSIVE: { name: 'Defensive', scoutCap: 2, salvagerCap: 1, transportRatio: 4, minCombatForTransport: 3, fleetSize: 5, aggressiveness: 0.2, retreatThreshold: 0.7, engageThreshold: 1.5, expansionBias: 0.4, researchPriority: 0.6, shipPreference: ['Cruiser', 'Frigate', 'Destroyer', 'Fighter'], repairStrategy: 'CRITICAL' },
-    EXPANDER: { name: 'Expander', scoutCap: 3, salvagerCap: 1, transportRatio: 2, minCombatForTransport: 1, fleetSize: 2, aggressiveness: 0.4, retreatThreshold: 0.5, engageThreshold: 1.2, expansionBias: 0.8, researchPriority: 0.4, shipPreference: ['Destroyer', 'Fighter', 'TroopTransport'] },
+    EXPANDER: { name: 'Expander', scoutCap: 2, salvagerCap: 1, transportRatio: 2, minCombatForTransport: 1, fleetSize: 2, aggressiveness: 0.4, retreatThreshold: 0.5, engageThreshold: 1.2, expansionBias: 0.8, researchPriority: 0.4, shipPreference: ['Destroyer', 'Fighter', 'TroopTransport'] },
     TECHNOLOGIST: { name: 'Technologist', scoutCap: 2, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 1, fleetSize: 3, aggressiveness: 0.3, retreatThreshold: 0.6, engageThreshold: 1.2, expansionBias: 0.5, researchPriority: 0.9, shipPreference: ['Cruiser', 'Destroyer', 'Frigate'] },
-    ECONOMIST: { name: 'Economist', scoutCap: 2, salvagerCap: 2, transportRatio: 3, minCombatForTransport: 1, fleetSize: 3, aggressiveness: 0.4, retreatThreshold: 0.6, engageThreshold: 1.3, expansionBias: 0.6, researchPriority: 0.5, shipPreference: ['Destroyer', 'Fighter', 'Salvager'] },
+    ECONOMIST: { name: 'Economist', scoutCap: 2, salvagerCap: 2, transportRatio: 3, minCombatForTransport: 1, fleetSize: 3, aggressiveness: 0.4, retreatThreshold: 0.6, engageThreshold: 1.3, expansionBias: 0.6, researchPriority: 0.5, shipPreference: ['Destroyer', 'Fighter'] },
     SWARM: { name: 'Swarm', scoutCap: 3, salvagerCap: 2, transportRatio: 4, minCombatForTransport: 3, fleetSize: 6, aggressiveness: 0.8, retreatThreshold: 0.2, engageThreshold: 0.6, expansionBias: 0.3, researchPriority: 0.2, shipPreference: ['Cruiser', 'Fighter'] },
     CAPITALIST: { name: 'Capitalist', scoutCap: 1, salvagerCap: 1, transportRatio: 3, minCombatForTransport: 1, fleetSize: 2, aggressiveness: 0.6, retreatThreshold: 0.6, engageThreshold: 1.2, expansionBias: 0.5, researchPriority: 0.6, shipPreference: ['Cruiser', 'Destroyer', 'Frigate'] }
 };
@@ -132,7 +132,7 @@ export class AIService {
         // Priority -1: Critical Survival (0 Combat Ships)
         // If we have absolutely no combat ships, we must prioritize building one above all else.
         if (combatShipCount === 0) {
-             // EXCEPTION: If we have a safe expansion target and no transport, prioritize that over a lone fighter
+             // EXCEPTION: If we have a safe expansion target and no transport, prioritize that over a lone fighter.
              // This breaks the "Build Fighter -> Die -> Build Fighter" loop if we can expand to safety.
              if (hasExpansionTarget && transportCount === 0) {
                  if (this._canAfford(resources, 'TroopTransport')) {
@@ -193,8 +193,9 @@ export class AIService {
         }
 
         // Priority 2: Scout
+        const dynamicScoutCap = Math.max(profile.scoutCap, Math.floor(mySystems.length / 5));
         const scoutCount = countShips('Scout');
-        if (scoutCount < profile.scoutCap && this._canAfford(resources, 'Scout')) {
+        if (scoutCount < dynamicScoutCap && this._canAfford(resources, 'Scout')) {
             if (buildShip('Scout', 'Building Scout')) return;
         }
 
@@ -351,6 +352,9 @@ export class AIService {
         const idleSalvagers = myShips.filter(s => s.type === 'Salvager' && s.moveState === SHIP_STATE.IDLE && !s.salvageMission);
         idleSalvagers.forEach(salvager => this._commandSalvager(aiPlayer, salvager));
 
+        // 2.5 Consolidate Fleets (Merge small idle fleets in same system)
+        this._consolidateFleets(aiPlayer);
+
         // 3. Fleet Formation
         this._formFleets(aiPlayer, myShips);
 
@@ -494,6 +498,43 @@ export class AIService {
         }
     }
 
+    _consolidateFleets(aiPlayer) {
+        if (!aiPlayer.fleets || aiPlayer.fleets.length < 2) return;
+
+        // Group fleets by location
+        const fleetsBySystem = {};
+        aiPlayer.fleets.forEach(f => {
+            if (f.locationId) {
+                if (!fleetsBySystem[f.locationId]) fleetsBySystem[f.locationId] = [];
+                fleetsBySystem[f.locationId].push(f);
+            }
+        });
+
+        Object.entries(fleetsBySystem).forEach(([sysId, fleets]) => {
+            if (fleets.length < 2) return;
+
+            // Filter for idle fleets only
+            const idleFleets = fleets.filter(f => {
+                const ships = this.engine.state.ships.filter(s => f.shipIds.includes(s.id));
+                return ships.length > 0 && ships.every(s => s.moveState === SHIP_STATE.IDLE);
+            });
+
+            if (idleFleets.length < 2) return;
+
+            // Sort by size (descending) to merge into the largest
+            idleFleets.sort((a, b) => b.shipIds.length - a.shipIds.length);
+
+            const targetFleet = idleFleets[0];
+            const fleetsToMerge = idleFleets.slice(1);
+
+            fleetsToMerge.forEach(sourceFleet => {
+                this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `AI ${aiPlayer.factionName} consolidating ${sourceFleet.name} into ${targetFleet.name}`);
+                this.engine.fleetService.handleUpdateFleetShipsRequest({ senderId: aiPlayer.id, fleetId: targetFleet.id, shipIdsToAdd: sourceFleet.shipIds, shipIdsToRemove: [] });
+                this.engine.fleetService.handleDisbandFleetRequest({ senderId: aiPlayer.id, fleetId: sourceFleet.id });
+            });
+        });
+    }
+
     _formFleets(aiPlayer, myShips) {
         const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
         
@@ -581,9 +622,50 @@ export class AIService {
                 requiredSize = 1;
             }
 
+            // Exception: Hunter/Invasion Fleet (Nearby weak enemies)
+            if (system && requiredSize > 1) {
+                const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+                const myStrength = this._calculateStrength(ships);
+
+                // 1. Check for vulnerable enemy systems (for invasion)
+                if (hasTransport) {
+                    const canInvade = neighbors.some(n => {
+                        if (!n || !n.owner || n.owner === aiPlayer.id) return false;
+                        const visibility = n.visibility[aiPlayer.id];
+                        if (visibility !== 'explored' && visibility !== 'scouted') return false;
+                        
+                        const enemyShips = this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, n));
+                        const enemyStrength = this._calculateStrength(enemyShips);
+                        return myStrength > enemyStrength * 1.5; // Want decisive advantage for invasion
+                    });
+                    if (canInvade) requiredSize = 1;
+                }
+
+                // 2. Check for nearby enemy fleets to hunt
+                if (requiredSize > 1) {
+                    const canHunt = neighbors.some(n => {
+                        const enemyShips = this.engine.state.ships.filter(s => s.owner !== aiPlayer.id && this.engine.spatialService.isShipInSystem(s, n));
+                        if (enemyShips.length === 0) return false;
+                        const enemyStrength = this._calculateStrength(enemyShips);
+                        return myStrength > enemyStrength * 1.2;
+                    });
+                    if (canHunt) requiredSize = 1;
+                }
+            }
+
             if (ships.length >= requiredSize) {
                 const shipIds = ships.map(s => s.id);
-                const fleetName = `${aiPlayer.factionName} Fleet ${aiPlayer.fleets.length + 1}`;
+                
+                const system = this.engine.state.systems.find(s => s.id === systemId);
+                let fleetName = system ? `${system.name} Fleet` : `${aiPlayer.factionName} Fleet`;
+                
+                const existingNames = new Set(aiPlayer.fleets.map(f => f.name));
+                if (existingNames.has(fleetName)) {
+                    let i = 2;
+                    while (existingNames.has(`${fleetName} ${i}`)) i++;
+                    fleetName = `${fleetName} ${i}`;
+                }
+
                 this.engine.fleetService.handleCreateFleetRequest({
                     senderId: aiPlayer.id,
                     name: fleetName,
@@ -802,6 +884,9 @@ export class AIService {
                 
                 const isSafe = enemyStrength === 0 || myStrength >= enemyStrength * 0.5;
                 
+                // Stay and fight if enemies are present and we aren't fleeing (strong enough)
+                if (enemyStrength > 0 && isSafe) return;
+
                 const hasUnownedPlanets = currentSystem.planets.some(p => p.owner !== aiPlayer.id);
                 if (hasUnownedPlanets && hasTransport && isSafe) return;
             }
@@ -851,6 +936,15 @@ export class AIService {
                 return scoreB - scoreA; // Descending score
             });
 
+            // Endgame Logic: If we are dominant (control > 50% of systems), prioritize eliminating weak enemies
+            const totalSystems = this.engine.state.systems.length;
+            const mySystemCount = this.engine.state.systems.filter(s => s.owner === aiPlayer.id).length;
+            if (mySystemCount > totalSystems * 0.5 && engageableEnemies.length > 0) {
+                // Find the enemy with the fewest systems
+                engageableEnemies.sort((a, b) => this._getEnemySystemCount(a.owner) - this._getEnemySystemCount(b.owner));
+                // The first element is now the target belonging to the weakest enemy
+            }
+
             // Decision: Expand or Attack? (Based on expansionBias)
             const prioritizeExpansion = hasTransport && neutralNeighbors.length > 0 && Math.random() < profile.expansionBias;
 
@@ -878,6 +972,10 @@ export class AIService {
                 if (!currentIsFrontier) {
                     const hop = this._findNearestFrontierHop(currentSystem, aiPlayer);
                     if (hop) target = hop;
+                    else {
+                        const exploreHop = this._findNearestExplorationHop(currentSystem, aiPlayer);
+                        if (exploreHop) target = exploreHop;
+                    }
                 }
 
                 // Fallback: Patrol / Move to Hubs if no target yet (or if we decided to move along frontier)
@@ -1125,5 +1223,48 @@ export class AIService {
             }
         }
         return null;
+    }
+
+    _findNearestExplorationHop(startSystem, aiPlayer) {
+        const queue = [];
+        const visited = new Set();
+        
+        const neighbors = startSystem.links
+            .map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+            .filter(s => s);
+            
+        neighbors.sort((a, b) => Math.hypot(a.x - startSystem.x, a.y - startSystem.y) - Math.hypot(b.x - startSystem.x, b.y - startSystem.y));
+
+        neighbors.forEach(neighbor => {
+            queue.push({ system: neighbor, firstHop: neighbor });
+            visited.add(neighbor.id);
+        });
+        visited.add(startSystem.id);
+
+        while (queue.length > 0) {
+            const { system, firstHop } = queue.shift();
+            
+            // Check neighbors for unexplored ones
+            const hasUnexploredNeighbor = system.links.some(l => {
+                const n = this.engine.state.systems.find(s => s.id === l.targetId);
+                return n && (!n.visibility[aiPlayer.id] || n.visibility[aiPlayer.id] === 'unexplored');
+            });
+            
+            if (hasUnexploredNeighbor) return firstHop;
+
+            // Expand search through explored systems
+            const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+            for (const neighbor of neighbors) {
+                if (!visited.has(neighbor.id)) {
+                    visited.add(neighbor.id);
+                    queue.push({ system: neighbor, firstHop: firstHop });
+                }
+            }
+        }
+        return null;
+    }
+
+    _getEnemySystemCount(playerId) {
+        return this.engine.state.systems.filter(s => s.owner === playerId).length;
     }
 }

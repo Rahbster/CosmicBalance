@@ -166,6 +166,13 @@ export class CombatService {
 
                         if (topOwner && topOwner !== system.owner) {
                             const previousOwner = system.owner;
+                            
+                            // Save naming history for the previous owner
+                            if (previousOwner) {
+                                if (!system.namingHistory) system.namingHistory = {};
+                                system.namingHistory[previousOwner] = system.name;
+                            }
+
                             system.owner = topOwner;
 
                             // Clear build queue if ownership changes to prevent ghost builds
@@ -184,14 +191,33 @@ export class CombatService {
                                 this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: system.id, queue: [] });
                             }
 
-                            // Only prompt for rename if the system was previously unowned
-                            if (!previousOwner) {
-                                const ownerPlayer = this.engine.state.players.find(p => p.id === topOwner);
-                                if (ownerPlayer) {
-                                    if (ownerPlayer.isAI) {
-                                        system.name = this.engine.galaxyService.generateSystemName(ownerPlayer.team);
-                                        this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
+                            const ownerPlayer = this.engine.state.players.find(p => p.id === topOwner);
+                            if (ownerPlayer) {
+                                if (ownerPlayer.isAI) {
+                                    let newName = null;
+                                    // Try to restore name from history
+                                    if (system.namingHistory && system.namingHistory[topOwner]) {
+                                        newName = system.namingHistory[topOwner];
                                     } else {
+                                        // Generate new name
+                                        newName = this.engine.galaxyService.generateSystemName(ownerPlayer.team);
+                                    }
+
+                                    if (newName && newName !== system.name) {
+                                        system.name = newName;
+                                        this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
+                                    }
+                                } else {
+                                    // Human Player
+                                    if (system.namingHistory && system.namingHistory[topOwner]) {
+                                        // Restore name from history automatically
+                                        const restoredName = system.namingHistory[topOwner];
+                                        if (restoredName !== system.name) {
+                                            system.name = restoredName;
+                                            this.engine.broadcast({ type: 'GAME_SYSTEM_RENAMED', systemId: system.id, newName: system.name });
+                                        }
+                                    } else if (!previousOwner) {
+                                        // Only prompt for rename if the system was previously unowned and no history exists
                                         this.engine.broadcast({ type: 'GAME_PROMPT_RENAME', systemId: system.id, playerId: topOwner });
                                     }
                                 }
