@@ -558,36 +558,17 @@ export class RenderService {
     drawFleet(ctx, fleetId, ships) {
         if (!ships || ships.length === 0) return;
 
-        let x, y;
-        const firstShip = ships[0];
-        const system = firstShip.currentSystemId ? this.gameEngine.state.systems.find(s => s.id === firstShip.currentSystemId) : null;
+        // Calculate centroid for all fleets (moving or idle) to prevent jumping
+        let totalX = 0;
+        let totalY = 0;
+        ships.forEach(s => {
+            totalX += s.x;
+            totalY += s.y;
+        });
+        const x = totalX / ships.length;
+        const y = totalY / ships.length;
 
-        if (system && firstShip.moveState === SHIP_STATE.IDLE) {
-            // Orbit logic for fleet icon
-            const orbitRadius = system.r + 25; 
-            // Generate a stable random angle based on fleet ID so it doesn't jump around
-            let hash = 0;
-            for (let i = 0; i < fleetId.length; i++) {
-                hash = ((hash << 5) - hash) + fleetId.charCodeAt(i);
-                hash |= 0;
-            }
-            const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
-            const speed = 0.0002; // Rotation speed
-            const angle = (this.gameEngine.state.gameTime * speed) + angleOffset;
-            
-            x = system.x + Math.cos(angle) * orbitRadius;
-            y = system.y + Math.sin(angle) * orbitRadius;
-        } else {
-            // Calculate centroid for moving fleets or deep space
-            let totalX = 0;
-            let totalY = 0;
-            ships.forEach(s => {
-                totalX += s.x;
-                totalY += s.y;
-            });
-            x = totalX / ships.length;
-            y = totalY / ships.length;
-        }
+        const firstShip = ships[0];
 
         const ownerId = ships[0].owner;
         const player = this.gameEngine.state.players.find(p => p.id === ownerId);
@@ -600,12 +581,46 @@ export class RenderService {
 
         // --- Draw Icon (Rotated) ---
         ctx.save();
-        if (ships[0].targetId) {
-             const target = this.gameEngine.state.systems.find(s => s.id === ships[0].targetId);
-             if (target) {
-                 const rotation = Math.atan2(target.y - y, target.x - x);
-                 ctx.rotate(rotation + Math.PI / 2);
-             }
+        
+        if (typeof firstShip.heading === 'number') {
+            ctx.rotate(firstShip.heading * Math.PI / 180);
+        } else {
+            let rotation = 0;
+            if (firstShip.targetId) {
+                const target = this.gameEngine.state.systems.find(s => s.id === firstShip.targetId);
+                if (target) {
+                    rotation = Math.atan2(target.y - y, target.x - x);
+                }
+            } else if (firstShip.arrivalPoint) {
+                rotation = Math.atan2(firstShip.arrivalPoint.y - y, firstShip.arrivalPoint.x - x);
+            }
+            
+            if (firstShip.targetId || firstShip.arrivalPoint) {
+                ctx.rotate(rotation + Math.PI / 2);
+            }
+        } 
+
+        // --- Visual Effects: Thrusters (Sublight) ---
+        if (firstShip.arrivalPoint && !firstShip.targetId) {
+             ctx.save();
+             const thrustLength = 15 + Math.random() * 5;
+             const thrustWidth = 8;
+             
+             ctx.fillStyle = '#FF4500';
+             ctx.globalAlpha = 0.8;
+             ctx.beginPath();
+             ctx.moveTo(-thrustWidth/2, 18);
+             ctx.lineTo(0, 18 + thrustLength);
+             ctx.lineTo(thrustWidth/2, 18);
+             ctx.fill();
+             
+             ctx.fillStyle = '#FFFF00';
+             ctx.beginPath();
+             ctx.moveTo(-thrustWidth/4, 18);
+             ctx.lineTo(0, 18 + thrustLength * 0.6);
+             ctx.lineTo(thrustWidth/4, 18);
+             ctx.fill();
+             ctx.restore();
         }
 
         ctx.fillStyle = color;
@@ -632,7 +647,44 @@ export class RenderService {
         ctx.fill();
         ctx.stroke();
         
+        // --- Visual Effects: Warp Bubble ---
+        if (firstShip.targetId) {
+             ctx.save();
+             ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 100) * 0.1;
+             ctx.fillStyle = '#00FFFF';
+             ctx.strokeStyle = '#FFFFFF';
+             ctx.beginPath();
+             ctx.ellipse(0, 3, 18, 25, 0, 0, Math.PI * 2);
+             ctx.fill();
+             ctx.stroke();
+             ctx.restore();
+        }
+
         ctx.restore(); // Undo rotation
+
+        // Fleet Health Bar
+        let totalHull = 0;
+        let totalMaxHull = 0;
+        ships.forEach(s => {
+            totalHull += s.hull;
+            totalMaxHull += s.maxHull;
+        });
+
+        let textYOffset = 25;
+
+        if (totalHull < totalMaxHull && totalMaxHull > 0) {
+            const barWidth = 24;
+            const barHeight = 4;
+            const barY = 20; 
+
+            ctx.fillStyle = 'red';
+            ctx.fillRect(-barWidth / 2, barY, barWidth, barHeight);
+            
+            ctx.fillStyle = '#0F0';
+            ctx.fillRect(-barWidth / 2, barY, barWidth * (totalHull / totalMaxHull), barHeight);
+            
+            textYOffset += 8; // Push text down
+        }
 
         // --- Draw Text (Screen Aligned) ---
         const fontSize = Math.max(10, 12 / this.gameEngine.camera.zoom);
@@ -642,7 +694,7 @@ export class RenderService {
         ctx.shadowColor = 'black';
         ctx.shadowBlur = 4;
         
-        ctx.fillText(fleetName, 0, 25 + (5 / this.gameEngine.camera.zoom));
+        ctx.fillText(fleetName, 0, textYOffset + (5 / this.gameEngine.camera.zoom));
         ctx.restore(); // Undo translation
     }
 
@@ -660,14 +712,20 @@ export class RenderService {
         ctx.save();
         ctx.translate(ship.x, ship.y);
 
-        let rotation = 0;
-        if (ship.targetId) {
-            const target = this.gameEngine.state.systems.find(s => s.id === ship.targetId) || this.gameEngine.state.debrisFields.find(d => d.id === ship.targetId);
-            if (target) {
-                rotation = Math.atan2(target.y - ship.y, target.x - ship.x);
+        if (typeof ship.heading === 'number') {
+            ctx.rotate(ship.heading * Math.PI / 180);
+        } else {
+            let rotation = 0;
+            if (ship.targetId) {
+                const target = this.gameEngine.state.systems.find(s => s.id === ship.targetId) || this.gameEngine.state.debrisFields.find(d => d.id === ship.targetId);
+                if (target) {
+                    rotation = Math.atan2(target.y - ship.y, target.x - ship.x);
+                }
+            } else if (ship.arrivalPoint) {
+                rotation = Math.atan2(ship.arrivalPoint.y - ship.y, ship.arrivalPoint.x - ship.x);
             }
+            ctx.rotate(rotation + Math.PI / 2); // Assumes sprites face "up"
         }
-        ctx.rotate(rotation + Math.PI / 2); // Assumes sprites face "up"
 
         // Define target display sizes for each ship type in pixels to approximate original polygon sizes.
         const TARGET_SIZES = {
@@ -691,15 +749,129 @@ export class RenderService {
         const w = sprite.width * scale;
         const h = sprite.height * scale;
 
+        // Calculate distance from center to corner (engine location for diagonal sprites)
+        const radius = Math.sqrt(Math.pow(w / 2, 2) + Math.pow(h / 2, 2));
+
+        // --- Visual Effects: Thrusters (Sublight) ---
+        if (ship.arrivalPoint && !ship.targetId) {
+            ctx.save();
+            const thrustLength = h * 0.5 + Math.random() * (h * 0.2);
+            const thrustWidth = w * 0.4;
+            
+            // Main flame
+            ctx.fillStyle = '#FF4500'; // Orange-red
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(-thrustWidth / 2, radius - 4); 
+            ctx.lineTo(0, radius + thrustLength);
+            ctx.lineTo(thrustWidth / 2, radius - 4);
+            ctx.fill();
+            
+            // Core flame
+            ctx.fillStyle = '#FFFF00'; // Yellow
+            ctx.beginPath();
+            ctx.moveTo(-thrustWidth / 4, radius - 4);
+            ctx.lineTo(0, radius + thrustLength * 0.6);
+            ctx.lineTo(thrustWidth / 4, radius - 4);
+            ctx.fill();
+            ctx.restore();
+        }
+
         // Draw sprite centered on the ship's coordinates
         ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
 
+        // --- Visual Effects: Warp Bubble ---
+        if (ship.targetId) {
+            ctx.save();
+            ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 100) * 0.1; // Pulsing
+            ctx.fillStyle = '#00FFFF';
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            
+            ctx.beginPath();
+            // Draw an elongated bubble around the ship
+            ctx.ellipse(0, 0, radius * 0.8, radius * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+
         // Un-rotate for non-rotated UI elements like health bars and icons
-        ctx.rotate(-(rotation + Math.PI / 2));
+        // This is handled by the ctx.restore() at the end of the function,
+        // which reverts all transformations including rotation.
+    }
+
+    _drawShipSprite(ctx, ship, sprite) {
+        ctx.save();
+        ctx.translate(ship.x, ship.y);
+
+        let appliedRotation = 0;
+        if (typeof ship.heading === 'number') {
+            appliedRotation = ship.heading * Math.PI / 180;
+        } else {
+            let rotation = 0;
+            if (ship.targetId) {
+                const target = this.gameEngine.state.systems.find(s => s.id === ship.targetId) || this.gameEngine.state.debrisFields.find(d => d.id === ship.targetId);
+                if (target) {
+                    rotation = Math.atan2(target.y - ship.y, target.x - ship.x);
+                }
+            } else if (ship.arrivalPoint) {
+                rotation = Math.atan2(ship.arrivalPoint.y - ship.y, ship.arrivalPoint.x - ship.x);
+            }
+            appliedRotation = rotation + Math.PI / 2;
+        }
+        // Correction for 225-degree sprites (South-West facing)
+        // We rotate +135 degrees (3PI/4) to align them to Up (North)
+        const SPRITE_CORRECTION = 3 * Math.PI / 4;
+        ctx.rotate(appliedRotation + SPRITE_CORRECTION);
+
+        // Define target display sizes for each ship type in pixels to approximate original polygon sizes.
+        const TARGET_SIZES = {
+            Fighter: 24, Scout: 32, TroopTransport: 32, Salvager: 28, Frigate: 48, SpaceStation: 64, default: 24
+        };
+        const targetSize = TARGET_SIZES[ship.type] || TARGET_SIZES.default;
+        const maxDim = Math.max(sprite.width, sprite.height);
+        if (maxDim === 0) { ctx.restore(); return; }
+        const scale = targetSize / maxDim;
+        const w = sprite.width * scale;
+        const h = sprite.height * scale;
+
+        // Calculate distance from center to corner (engine location for diagonal sprites)
+        const radius = Math.sqrt(Math.pow(w / 2, 2) + Math.pow(h / 2, 2));
+
+        const THRUST_CORRECTION = 235 * Math.PI / 180;
+        ctx.rotate(THRUST_CORRECTION);
+
+        // --- Visual Effects: Thrusters (Sublight) ---
+        if (ship.arrivalPoint && !ship.targetId) {
+            ctx.save();
+            const thrustLength = h * 0.5 + Math.random() * (h * 0.2);
+            const thrustWidth = w * 0.4;
+            ctx.fillStyle = '#FF4500'; ctx.globalAlpha = 0.8;
+            ctx.beginPath(); ctx.moveTo(-thrustWidth / 2, radius - 4); ctx.lineTo(0, radius + thrustLength); ctx.lineTo(thrustWidth / 2, radius - 4); ctx.fill();
+            ctx.fillStyle = '#FFFF00'; ctx.beginPath(); ctx.moveTo(-thrustWidth / 4, radius - 4); ctx.lineTo(0, radius + thrustLength * 0.6); ctx.lineTo(thrustWidth / 4, radius - 4); ctx.fill();
+            ctx.restore();
+        }
+
+        ctx.rotate(-THRUST_CORRECTION);
+
+        ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+
+        // --- Visual Effects: Warp Bubble ---
+        if (ship.targetId) {
+            ctx.save();
+            ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 100) * 0.1;
+            ctx.fillStyle = '#00FFFF'; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.ellipse(0, 0, radius * 0.8, radius * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.restore();
+        }
+
+        // Un-rotate for non-rotated UI elements like health bars and icons
+        ctx.rotate(-appliedRotation - SPRITE_CORRECTION); // Undo both rotations
 
         // Health Bar
         if (ship.hull < ship.maxHull) {
-            const barY = (h / 2) + 5; // Position below the sprite
+            const barY = radius + 5; // Position below the sprite
             ctx.fillStyle = 'red';
             ctx.fillRect(-10, barY, 20, 3);
             ctx.fillStyle = '#0F0';
@@ -729,15 +901,38 @@ export class RenderService {
         ctx.save();
         ctx.translate(ship.x, ship.y);
         
-        // Determine rotation based on target
-        let rotation = 0;
-        if (ship.targetId) {
-            const target = this.gameEngine.state.systems.find(s => s.id === ship.targetId);
-            if (target) {
-                rotation = Math.atan2(target.y - ship.y, target.x - ship.x);
+        let appliedRotation = 0;
+        if (typeof ship.heading === 'number') {
+            appliedRotation = ship.heading * Math.PI / 180;
+        } else {
+            let rotation = 0;
+            if (ship.targetId) {
+                const target = this.gameEngine.state.systems.find(s => s.id === ship.targetId);
+                if (target) {
+                    rotation = Math.atan2(target.y - ship.y, target.x - ship.x);
+                }
+            } else if (ship.arrivalPoint) {
+                rotation = Math.atan2(ship.arrivalPoint.y - ship.y, ship.arrivalPoint.x - ship.x);
             }
+            appliedRotation = rotation + Math.PI / 2;
         }
-        ctx.rotate(rotation + Math.PI / 2); // +90deg because standard draw is pointing up
+        ctx.rotate(appliedRotation);
+
+        // --- Visual Effects: Thrusters (Sublight) ---
+        if (ship.arrivalPoint && !ship.targetId && !ship.isStation) {
+             ctx.save();
+             const thrustLength = 15 + Math.random() * 5;
+             const thrustWidth = 6;
+             
+             ctx.fillStyle = '#FF4500';
+             ctx.globalAlpha = 0.8;
+             ctx.beginPath();
+             ctx.moveTo(-thrustWidth/2, 5);
+             ctx.lineTo(0, 5 + thrustLength);
+             ctx.lineTo(thrustWidth/2, 5);
+             ctx.fill();
+             ctx.restore();
+        }
 
         if (ship.isStation) {
             // Station: Hexagon
@@ -813,8 +1008,20 @@ export class RenderService {
             ctx.stroke();
         }
 
+        // --- Visual Effects: Warp Bubble ---
+        if (ship.targetId && !ship.isStation) {
+             ctx.save();
+             ctx.globalAlpha = 0.3 + Math.sin(Date.now() / 100) * 0.1;
+             ctx.fillStyle = '#00FFFF';
+             ctx.strokeStyle = '#FFFFFF';
+             ctx.beginPath();
+             ctx.ellipse(0, 0, 12, 16, 0, 0, Math.PI * 2);
+             ctx.fill();
+             ctx.stroke();
+             ctx.restore();
+        }
+
         // Un-rotate for non-rotated UI elements like health bars and icons
-        ctx.rotate(-(rotation + Math.PI / 2));
 
         // Health Bar
         if (ship.hull < ship.maxHull) {
@@ -896,34 +1103,15 @@ export class RenderService {
                     const fleetShips = (visibleShips || state.ships).filter(s => s.fleetId === ship.fleetId);
                     
                     if (fleetShips.length > 0) {
-                        const representativeShip = fleetShips[0];
-                        const system = representativeShip.currentSystemId ? state.systems.find(s => s.id === representativeShip.currentSystemId) : null;
-
-                        if (system && representativeShip.moveState === SHIP_STATE.IDLE) {
-                            // Orbit logic matching drawFleet
-                            const orbitRadius = system.r + 25; 
-                            let hash = 0;
-                            for (let i = 0; i < ship.fleetId.length; i++) {
-                                hash = ((hash << 5) - hash) + ship.fleetId.charCodeAt(i);
-                                hash |= 0;
-                            }
-                            const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
-                            const speed = 0.0002;
-                            const angle = (this.gameEngine.state.gameTime * speed) + angleOffset;
-                            
-                            drawX = system.x + Math.cos(angle) * orbitRadius;
-                            drawY = system.y + Math.sin(angle) * orbitRadius;
-                        } else {
-                            // Centroid logic matching drawFleet for moving/deep space fleets
-                            let totalX = 0;
-                            let totalY = 0;
-                            fleetShips.forEach(s => {
-                                totalX += s.x;
-                                totalY += s.y;
-                            });
-                            drawX = totalX / fleetShips.length;
-                            drawY = totalY / fleetShips.length;
-                        }
+                        // Centroid logic matching drawFleet for all fleets to ensure sync
+                        let totalX = 0;
+                        let totalY = 0;
+                        fleetShips.forEach(s => {
+                            totalX += s.x;
+                            totalY += s.y;
+                        });
+                        drawX = totalX / fleetShips.length;
+                        drawY = totalY / fleetShips.length;
                     }
                 }
 

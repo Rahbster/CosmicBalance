@@ -462,12 +462,13 @@ export class GameEngine {
         else this.broadcast(request);
     }
 
-    requestMoveFleet(fleetId, targetSystemId) {
+    requestMoveFleet(fleetId, targetSystemId, navigationPath = null) {
         const request = {
             type: 'GAME_REQUEST_MOVE_FLEET',
             senderId: this.getIdentity().guid,
             fleetId,
-            targetSystemId
+            targetSystemId,
+            navigationPath
         };
         if (this.isHost) this.fleetService.handleMoveFleetRequest(request);
         else this.broadcast(request);

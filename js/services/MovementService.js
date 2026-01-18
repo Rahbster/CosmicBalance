@@ -72,6 +72,8 @@ export class MovementService {
                         ship.x += (dx / dist) * travelDistance;
                         ship.y += (dy / dist) * travelDistance;
                         // Trace log for movement details
+                        // Update heading to face target
+                        ship.heading = (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
                         this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, `Ship ${ship.id} WARP. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)}) Dist: ${dist.toFixed(1)}`);
                     }
                 } else { // Ship has arrived at the system's edge
@@ -200,6 +202,33 @@ export class MovementService {
 
                 ship.x += (dx / dist) * travelDistance;
                 ship.y += (dy / dist) * travelDistance;
+
+                // Update heading with interpolation towards final orbit heading
+                const moveAngle = Math.atan2(dy, dx);
+                let targetHeading = (moveAngle * 180 / Math.PI) + 90;
+
+                const system = this.engine.state.systems.find(s => s.id === ship.currentSystemId);
+                if (system && dist < 100) {
+                    const sysDx = ship.arrivalPoint.x - system.x;
+                    const sysDy = ship.arrivalPoint.y - system.y;
+                    const angleFromCenter = Math.atan2(sysDy, sysDx);
+                    const orbitHeading = ((angleFromCenter + Math.PI / 2) * 180 / Math.PI) + 90;
+                    
+                    const t = Math.max(0, 1 - (dist / 100));
+                    const easeT = t * t * (3 - 2 * t); 
+
+                    if (this.engine.loggingService.config[LOG_CATEGORIES.MOVEMENT] >= LOG_LEVELS.TRACE) {
+                        this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, 
+                            `Ship ${ship.id} approach: Dist=${dist.toFixed(1)}, ` +
+                            `OrbitHdg=${orbitHeading.toFixed(1)}, ` +
+                            `CurrentHdg=${targetHeading.toFixed(1)}`
+                        );
+                    }
+
+                    targetHeading = this._lerpHeading(targetHeading, orbitHeading, easeT);
+                }
+                ship.heading = targetHeading;
+
                 // Trace log for sublight movement
                 this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, `Ship ${ship.id} SUBLIGHT. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)}) Dist: ${dist.toFixed(1)}`);
             } else {
@@ -255,6 +284,7 @@ export class MovementService {
                 if (travelDistance > 0) {
                     ship.x += (dx / dist) * travelDistance;
                     ship.y += (dy / dist) * travelDistance;
+                    ship.heading = (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
                 }
             }
         }
@@ -282,8 +312,15 @@ export class MovementService {
             ship.y = system.y + Math.sin(newAngle) * dist;
             
             // Face the direction of orbit (tangent)
-            ship.heading = (newAngle * 180 / Math.PI) + 90;
+            ship.heading = (newAngle * 180 / Math.PI) + 180;
         }
+    }
+
+    _lerpHeading(current, target, t) {
+        let diff = target - current;
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+        return current + diff * t;
     }
 
     moveShip(shipId, targetId) {
@@ -314,14 +351,29 @@ export class MovementService {
             // When moving to a system, calculate a random arrival point within it.
             const targetSystem = this.engine.state.systems.find(s => s.id === targetId);
             if (targetSystem) {
-                const angle = Math.random() * 2 * Math.PI;
-                const effRadius = this.engine.spatialService.getSystemEffectiveRadius(targetSystem);
-                
-                // Calculate arrival distance: outside the star but within the system
-                const minArrivalDist = targetSystem.r + 30; // Star radius + buffer
-                const maxArrivalDist = effRadius > 0 ? effRadius * 0.7 : 50; // 70% of system radius
-                
-                const distance = minArrivalDist + Math.random() * (Math.max(minArrivalDist + 10, maxArrivalDist) - minArrivalDist);
+                let angle, distance;
+
+                if (ship.fleetId) {
+                    // Deterministic angle based on fleet ID to separate fleets visually in orbit
+                    let hash = 0;
+                    for (let i = 0; i < ship.fleetId.length; i++) {
+                        hash = ((hash << 5) - hash) + ship.fleetId.charCodeAt(i);
+                        hash |= 0;
+                    }
+                    const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
+                    
+                    angle = angleOffset + (Math.random() * 0.2 - 0.1); // Slight jitter
+                    distance = targetSystem.r + 25 + (Math.random() * 10 - 5); // Standard orbit distance
+                } else {
+                    angle = Math.random() * 2 * Math.PI;
+                    const effRadius = this.engine.spatialService.getSystemEffectiveRadius(targetSystem);
+                    
+                    // Calculate arrival distance: outside the star but within the system
+                    const minArrivalDist = targetSystem.r + 30; // Star radius + buffer
+                    const maxArrivalDist = effRadius > 0 ? effRadius * 0.7 : 50; // 70% of system radius
+                    
+                    distance = minArrivalDist + Math.random() * (Math.max(minArrivalDist + 10, maxArrivalDist) - minArrivalDist);
+                }
 
                 ship.arrivalPoint = {
                     x: targetSystem.x + Math.cos(angle) * distance,
@@ -359,9 +411,18 @@ export class MovementService {
             const fleet = player?.fleets.find(f => f.id === selectedShip.fleetId);
             if (fleet) {
                 const originSystem = this.engine.state.systems.find(s => s.id === fleet.locationId);
-                if (originSystem && originSystem.links.some(l => l.targetId === targetId)) {
-                    this.engine.requestMoveFleet(fleet.id, targetId);
-                    return true;
+                if (originSystem) {
+                    if (originSystem.links.some(l => l.targetId === targetId)) {
+                        this.engine.requestMoveFleet(fleet.id, targetId);
+                        return true;
+                    } else {
+                        const path = this.findPath(originSystem.id, targetId);
+                        if (path && path.length > 0) {
+                            const nextStep = path.shift();
+                            this.engine.requestMoveFleet(fleet.id, nextStep, path);
+                            return true;
+                        }
+                    }
                 }
                 return false; // Invalid move for the fleet
             }

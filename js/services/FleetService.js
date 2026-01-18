@@ -53,7 +53,7 @@ export class FleetService {
         this.engine.broadcast({ type: 'GAME_FLEET_UPDATE', playerId: senderId, fleets: player.fleets, updatedShips: shipIds.map(id => ({ id, fleetId: null })) });
     }
 
-    handleMoveFleetRequest({ senderId, fleetId, targetSystemId }) {
+    handleMoveFleetRequest({ senderId, fleetId, targetSystemId, navigationPath }) {
         this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `[FleetService] Move request for fleet ${fleetId} to ${targetSystemId}`);
         if (!this.engine.isHost) return;
         const player = this.engine.state.players.find(p => p.id === senderId);
@@ -62,9 +62,16 @@ export class FleetService {
 
         // Host re-validates that all ships can move
         fleet.shipIds.forEach(shipId => {
-            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.DEBUG, `[FleetService] Moving ship ${shipId} in fleet ${fleetId} to ${targetSystemId}`);
-            // This re-uses the existing moveShip logic, which already broadcasts the update
-            this.engine.moveShip(shipId, targetSystemId);
+            const ship = this.engine.state.ships.find(s => s.id === shipId);
+            if (ship) {
+                if (navigationPath) {
+                    ship.navigationPath = [...navigationPath];
+                } else {
+                    ship.navigationPath = [];
+                }
+                this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.DEBUG, `[FleetService] Moving ship ${shipId} in fleet ${fleetId} to ${targetSystemId}`);
+                this.engine.moveShip(shipId, targetSystemId);
+            }
         });
     }
 

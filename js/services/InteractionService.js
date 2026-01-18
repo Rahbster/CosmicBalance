@@ -54,27 +54,10 @@ export class InteractionService {
                 if (ships.length === 0) return;
                 
                 let cx, cy;
-                const firstShip = ships[0];
-                const system = firstShip.currentSystemId ? this.state.systems.find(s => s.id === firstShip.currentSystemId) : null;
-
-                if (system && firstShip.moveState === SHIP_STATE.IDLE) {
-                    const orbitRadius = system.r + 25;
-                    let hash = 0;
-                    for (let i = 0; i < ships[0].fleetId.length; i++) {
-                        hash = ((hash << 5) - hash) + ships[0].fleetId.charCodeAt(i);
-                        hash |= 0;
-                    }
-                    const angleOffset = (Math.abs(hash) % 360) * (Math.PI / 180);
-                    const speed = 0.0002;
-                    const angle = (this.engine.state.gameTime * speed) + angleOffset;
-                    cx = system.x + Math.cos(angle) * orbitRadius;
-                    cy = system.y + Math.sin(angle) * orbitRadius;
-                } else {
-                    let tx = 0, ty = 0;
-                    ships.forEach(s => { tx += s.x; ty += s.y; });
-                    cx = tx / ships.length;
-                    cy = ty / ships.length;
-                }
+                let tx = 0, ty = 0;
+                ships.forEach(s => { tx += s.x; ty += s.y; });
+                cx = tx / ships.length;
+                cy = ty / ships.length;
                 
                 const dx = cx - x;
                 const dy = cy - y;
