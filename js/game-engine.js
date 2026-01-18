@@ -1,7 +1,7 @@
 import { GalaxyService, SHIP_DATA, PLANET_TYPES } from './services/GalaxyService.js';
 import { InteractionService } from './services/InteractionService.js';
 import { RenderService } from './services/RenderService.js';
-import { AIService, AI_PROFILES } from './services/AIService.js';
+import { AIService } from './services/AIService.js';
 import { SpriteService } from './services/SpriteService.js';
 import { FleetService } from './services/FleetService.js';
 import { CombatService } from './services/CombatService.js';
@@ -13,7 +13,8 @@ import { SpatialService } from './services/SpatialService.js';
 import { CameraManager } from './services/CameraManager.js';
 import { SelectionManager } from './services/SelectionManager.js';
 import { GameMessageHandler } from './services/GameMessageHandler.js';
-import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS, DEFAULT_SHIP_DESIGNS } from './cb_constants.js';
+import { GameSetupService } from './services/GameSetupService.js';
+import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, DEFAULT_SHIP_DESIGNS } from './cb_constants.js';
 
 
 export class GameEngine {
@@ -82,6 +83,7 @@ export class GameEngine {
         this.economyService = new EconomyService(this);
         this.movementService = new MovementService(this);
         this.messageHandler = new GameMessageHandler(this);
+        this.gameSetupService = new GameSetupService(this);
         
         this.lastTime = 0;
         this.uiUpdateTimer = 0;
@@ -262,147 +264,7 @@ export class GameEngine {
     }
 
     async createNewGame(config) {
-        const { numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
-    
-        this.isHost = true;
-        this.paused = false; // Explicitly reset pause state for a new game
-        this.timeScale = 1.0;
-        this.state.gameConfig = config;
-
-        const availableColors = [...FACTION_COLORS];
-        
-        this.state.players = [];
-        this.state.gameTime = 0;
-
-        if (humanPlayers && humanPlayers.length > 0) {
-            humanPlayers.forEach(human => {
-                const humanColor = availableColors.splice(0, 1)[0];
-                this.state.players.push({
-                    id: human.guid,
-                    factionName: human.name,
-                    team: human.name,
-                    techBase: human.team || 'UNSC', // Use the human's team, fallback to UNSC
-                    color: humanColor,
-                    isAI: false,
-                    resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-                    totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-                    researchedTechs: [],
-                    researchQueue: [],
-                    fleets: [],
-                    designs: []
-                });
-            });
-        }
-
-        if (isSpectator) {
-            this.hostView.mode = 'god';
-            this.hostView.selectedPlayerIds = [];
-        } else {
-            this.hostView.mode = 'player';
-            this.hostView.selectedPlayerIds = [this.getIdentity().guid];
-        }
-
-        // Add resources to AI players
-        const profileKeys = Object.keys(AI_PROFILES);
-        
-        // Shuffle profiles to ensure random matchups, especially for symmetric maps
-        for (let i = profileKeys.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [profileKeys[i], profileKeys[j]] = [profileKeys[j], profileKeys[i]];
-        }
-
-        this.state.players.push(...aiPlayers.map((p, i) => {
-            const profileKey = profileKeys[i % profileKeys.length];
-            const profileName = AI_PROFILES[profileKey].name;
-            return { 
-                ...p, 
-                factionName: `${profileName} AI ${i + 1}`, 
-                aiProfile: profileKey,
-                color: availableColors.splice(0, 1)[0], 
-                resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 }, 
-                totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-                researchedTechs: [], 
-                researchQueue: [], 
-                fleets: [],
-                designs: []
-            };
-        }));
-
-        this.state.systems = this.galaxyService.generateGalaxyMap(numSystems, twoWayDensity, oneWayDensity, isSymmetric, this.state.players.length);
-        this.state.ships = [];
-        this.state.debrisFields = [];
-        this.selectedLocationId = null;
-        this.selectedShipId = null;
-        this.reportHistory = [];
-        if (this.storageService) this.storageService.saveReports([]); // Clear reports
-        this.state.settings = {
-            resourceRate: resourceRate || 1.0,
-            shipSpeedRate: shipSpeedRate || 1.0
-        };
-
-        await this.techService.loadTechData(); // Pre-load tech data for the host.
-        await this.spriteService.loadSprites(); // Pre-load sprites
-
-        // --- Assign Home Systems ---
-        const availableSystems = [...this.state.systems];
-        
-        // If symmetric, we assume the galaxy service returned systems in slices.
-        // Player i gets the first system of Slice i.
-        const stride = isSymmetric ? Math.floor(this.state.systems.length / this.state.players.length) : 0;
-
-        this.state.players.forEach((player, i) => {
-            if (availableSystems.length > 0) {
-                let homeSystem;
-                
-                if (isSymmetric) {
-                    // Deterministic assignment for symmetry
-                    // The systems array is generated slice by slice.
-                    homeSystem = this.state.systems[i * stride];
-                } else {
-                    // 1. Pick a random system
-                    const index = Math.floor(Math.random() * availableSystems.length);
-                    homeSystem = availableSystems.splice(index, 1)[0];
-                }
-
-                if (!homeSystem) return;
-
-                // 2. Assign ownership
-                homeSystem.owner = player.id; // Owner is now player ID
-
-                // 2.5 Assign ownership of the first planet in the home system
-                if (homeSystem.planets && homeSystem.planets.length > 0) {
-                    const homePlanet = homeSystem.planets[0];
-                    homePlanet.owner = player.id;
-                    homePlanet.captureProgress = 100;
-                    homePlanet.type = 'Terran'; // Force fair start
-                }
-
-                // 3. Reveal system to owner
-                if (!homeSystem.visibility) homeSystem.visibility = {};
-                homeSystem.visibility[player.id] = 'explored';
-
-                // 4. Spawn starting units (Station + Scout)
-                this._spawnShip(player, 'SpaceStation', { x: homeSystem.x, y: homeSystem.y }, homeSystem);
-                this._spawnShip(player, 'Scout', { x: homeSystem.x + 30, y: homeSystem.y + 30 }, homeSystem);
-            }
-        });
-
-        this._saveState();
-
-        // Center the camera on the local player's home system
-        const localPlayer = this.getLocalPlayer();
-        if (localPlayer) {
-            const homeSystem = this.state.systems.find(s => s.owner === localPlayer.id);
-            if (homeSystem) {
-                this.camera.centerOn(homeSystem.x, homeSystem.y, 1);
-            }
-        } else if (this.state.systems.length > 0) {
-            // Spectator mode: Center on the first system
-            const firstSystem = this.state.systems[0];
-            this.camera.centerOn(firstSystem.x, firstSystem.y, 0.5);
-        }
-
-        return this.state;
+        return this.gameSetupService.createNewGame(config);
     }
 
     async restartGame(config) {
@@ -524,71 +386,7 @@ export class GameEngine {
     }
 
     addPlayer(id, name, role = 'player') {
-        if (!this.isHost) return;
-
-        // 1. Check if player already exists (Re-join)
-        let player = this.state.players.find(p => p.id === id);
-        if (player) {
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Player ${name} re-joined.`);
-            player.factionName = name; // Update name in case it changed
-            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
-            return;
-        }
-
-        if (role === 'spectator') {
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `User ${name} joined as Spectator.`);
-            this.broadcast({ type: 'GAME_TOAST', message: `${name} joined as spectator.`, toastType: 'info' });
-            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
-            return;
-        }
-
-        // 2. Try to convert an AI player to Human (Drop-in)
-        const aiPlayer = this.state.players.find(p => p.isAI && !p.isDead);
-        if (aiPlayer) {
-            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Converting AI ${aiPlayer.factionName} to Human Player ${name}`);
-            
-            aiPlayer.id = id;
-            aiPlayer.factionName = name;
-            aiPlayer.isAI = false;
-            delete aiPlayer.aiProfile; // Remove AI behavior
-            delete aiPlayer.aiGoal;
-
-            // Notify everyone of the update
-            this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: id, update: aiPlayer });
-            this.broadcast({ type: 'GAME_TOAST', message: `${name} has joined the game!`, toastType: 'success' });
-            
-            // Send full state to the new player
-            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
-            return;
-        }
-
-        // 3. If no AI to convert, try to spawn new (if map allows)
-        const unownedSystem = this.state.systems.find(s => !s.owner && (!s.planets || !s.planets.some(p => p.owner)));
-        
-        if (unownedSystem) {
-            const availableColors = FACTION_COLORS.filter(c => !this.state.players.some(p => p.color === c));
-            const color = availableColors.length > 0 ? availableColors[0] : '#FFFFFF';
-
-            const newPlayer = {
-                id: id, factionName: name, team: name, techBase: 'UNSC', color: color, isAI: false,
-                resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-                totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-                researchedTechs: [], researchQueue: [], fleets: [], designs: []
-            };
-
-            this.state.players.push(newPlayer);
-            this._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
-            this._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
-            
-            unownedSystem.owner = newPlayer.id;
-            unownedSystem.visibility[newPlayer.id] = 'explored';
-            
-            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
-        } else {
-            // Game full - Spectator
-            this.peerManager.send({ type: 'GAME_SET_STATE', state: this.state });
-            if (window.toastManager) window.toastManager.show(`Game full! ${name} joined as spectator.`, 'warning');
-        }
+        this.gameSetupService.addPlayer(id, name, role);
     }
 
     // Internal method to create and broadcast a ship. Does not handle costs.
@@ -865,96 +663,10 @@ export class GameEngine {
                 this.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: p.id, update: { isDead: true } });
 
                 if (p.isAI) {
-                    this.replaceAIPlayer(p);
+                    this.gameSetupService.replaceAIPlayer(p);
                 }
             });
         }
-    }
-
-    replaceAIPlayer(deadPlayer) {
-        // Find a system with no owner and no planet owners
-        const unownedSystems = this.state.systems.filter(s => !s.owner && (!s.planets || !s.planets.some(pl => pl.owner)));
-        
-        if (unownedSystems.length === 0) {
-            // No room for new AI. Remove the dead player to clean up.
-            this.state.players = this.state.players.filter(p => p.id !== deadPlayer.id);
-            this.broadcast({ type: 'GAME_SET_STATE', state: this.state });
-            return;
-        }
-
-        const unownedSystem = unownedSystems[Math.floor(Math.random() * unownedSystems.length)];
-        
-        // Pick a new profile
-        const profileKeys = Object.keys(AI_PROFILES);
-        let newProfileKey = profileKeys[Math.floor(Math.random() * profileKeys.length)];
-        // Try to avoid the same profile if possible
-        if (profileKeys.length > 1 && newProfileKey === deadPlayer.aiProfile) {
-             const otherKeys = profileKeys.filter(k => k !== deadPlayer.aiProfile);
-             if (otherKeys.length > 0) {
-                 newProfileKey = otherKeys[Math.floor(Math.random() * otherKeys.length)];
-             }
-        }
-        const profileName = AI_PROFILES[newProfileKey].name;
-
-        // Create new player
-        const newId = `AI_${crypto.randomUUID().split('-')[0]}`;
-        // Ensure unique name
-        let nameSuffix = 1;
-        let newName = `${profileName} AI ${nameSuffix}`;
-        while (this.state.players.some(p => p.factionName === newName)) {
-            nameSuffix++;
-            newName = `${profileName} AI ${nameSuffix}`;
-        }
-
-        const newPlayer = {
-            id: newId,
-            factionName: newName,
-            team: newName,
-            techBase: 'COVENANT', // AI Default
-            color: deadPlayer.color, // Reuse color
-            isAI: true,
-            aiProfile: newProfileKey,
-            resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-            totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
-            researchedTechs: [],
-            researchQueue: [],
-            fleets: [],
-            designs: []
-        };
-
-        this.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Replacing ${deadPlayer.factionName} with ${newPlayer.factionName} in ${unownedSystem.name}`);
-
-        // Replace in array
-        const idx = this.state.players.indexOf(deadPlayer);
-        if (idx !== -1) {
-            this.state.players[idx] = newPlayer;
-        } else {
-            this.state.players.push(newPlayer);
-        }
-
-        // Setup System
-        unownedSystem.owner = newPlayer.id;
-        unownedSystem.visibility[newPlayer.id] = 'explored';
-        
-        // Claim a planet
-        if (unownedSystem.planets && unownedSystem.planets.length > 0) {
-            const homePlanet = unownedSystem.planets[0];
-            homePlanet.owner = newPlayer.id;
-            homePlanet.captureProgress = 100;
-        }
-
-        // Spawn Ships
-        this._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
-        this._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
-
-        this.broadcast({ 
-            type: 'GAME_TOAST', 
-            message: `A new faction, ${newPlayer.factionName}, has entered the galaxy!`, 
-            toastType: 'info' 
-        });
-        
-        // Full state update required because player list changed
-        this.broadcast({ type: 'GAME_SET_STATE', state: this.state });
     }
 
     runHeatDecay(dt) {
