@@ -298,8 +298,8 @@ export class AIFleetManager {
                 const existingNames = new Set(aiPlayer.fleets.map(f => f.name));
                 if (existingNames.has(fleetName)) {
                     let i = 2;
-                    while (existingNames.has(` `)) i++;
-                    fleetName = ` `;
+                    while (existingNames.has(`${fleetName} ${i}`)) i++;
+                    fleetName = `${fleetName} ${i}`;
                 }
 
                 this.engine.fleetService.handleCreateFleetRequest({
@@ -751,9 +751,10 @@ export class AIFleetManager {
     _findNearestFrontierHop(startSystem, aiPlayer) {
         const queue = [];
         const visited = new Set();
+        const systemMap = this.engine.spatialService.getSystemMap();
         
         const neighbors = startSystem.links
-            .map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+            .map(l => systemMap.get(l.targetId))
             .filter(s => s);
             
         neighbors.sort((a, b) => Math.hypot(a.x - startSystem.x, a.y - startSystem.y) - Math.hypot(b.x - startSystem.x, b.y - startSystem.y));
@@ -772,7 +773,7 @@ export class AIFleetManager {
             if (system.owner && system.owner !== aiPlayer.id && isVisible) return firstHop;
 
             if (isVisible) {
-                const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+                const neighbors = system.links.map(l => systemMap.get(l.targetId));
                 const hasEnemyNeighbor = neighbors.some(n => {
                     const nVis = n.visibility[aiPlayer.id];
                     return n.owner && n.owner !== aiPlayer.id && (nVis === 'explored' || nVis === 'scouted');
@@ -780,7 +781,7 @@ export class AIFleetManager {
                 if (hasEnemyNeighbor) return firstHop;
             }
 
-            const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+            const neighbors = system.links.map(l => systemMap.get(l.targetId));
             for (const neighbor of neighbors) {
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
@@ -794,9 +795,10 @@ export class AIFleetManager {
     _findNearestExplorationHop(startSystem, aiPlayer) {
         const queue = [];
         const visited = new Set();
+        const systemMap = this.engine.spatialService.getSystemMap();
         
         const neighbors = startSystem.links
-            .map(l => this.engine.state.systems.find(s => s.id === l.targetId))
+            .map(l => systemMap.get(l.targetId))
             .filter(s => s);
             
         neighbors.sort((a, b) => Math.hypot(a.x - startSystem.x, a.y - startSystem.y) - Math.hypot(b.x - startSystem.x, b.y - startSystem.y));
@@ -811,13 +813,13 @@ export class AIFleetManager {
             const { system, firstHop } = queue.shift();
             
             const hasUnexploredNeighbor = system.links.some(l => {
-                const n = this.engine.state.systems.find(s => s.id === l.targetId);
+                const n = systemMap.get(l.targetId);
                 return n && (!n.visibility[aiPlayer.id] || n.visibility[aiPlayer.id] === 'unexplored');
             });
             
             if (hasUnexploredNeighbor) return firstHop;
 
-            const neighbors = system.links.map(l => this.engine.state.systems.find(s => s.id === l.targetId));
+            const neighbors = system.links.map(l => systemMap.get(l.targetId));
             for (const neighbor of neighbors) {
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);

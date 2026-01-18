@@ -3,6 +3,8 @@ import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 export class SpatialService {
     constructor(engine) {
         this.engine = engine;
+        this._systemMap = null;
+        this._cachedSystemsRef = null;
     }
 
     getSystemEffectiveRadius(system) {
@@ -81,5 +83,14 @@ export class SpatialService {
             }
         }
         return closestSystem;
+    }
+
+    getSystemMap() {
+        if (this._cachedSystemsRef !== this.engine.state.systems) {
+            this._cachedSystemsRef = this.engine.state.systems;
+            this._systemMap = new Map();
+            this._cachedSystemsRef.forEach(s => this._systemMap.set(s.id, s));
+        }
+        return this._systemMap;
     }
 }

@@ -112,42 +112,56 @@ export class MovementService {
                             // which would broadcast an IDLE state and cancel the move we just started.
                             return;
                         }
+                        // --- Handle Explore Mission Arrival ---
+                        if (ship.exploreMission) {
+                            // 1. Perform scout action (Reveal & Report)
+                            let wasDestroyed = false;
+                            if (ship.type === 'Scout') {
+                                wasDestroyed = this._performScoutRiskCheck(ship, arrivedAtSystem);
+                                if (!wasDestroyed) {
+                                    arrivedAtSystem.visibility[ship.owner] = 'explored';
+                                    this._broadcastScoutReport(ship, arrivedAtSystem);
+                                    this.engine.broadcast({ type: 'GAME_REVEAL', systemId: arrivedAtSystem.id, playerId: ship.owner, visibility: 'explored' });
+                                }
+                            }
+
+                            if (wasDestroyed) return; // Ship is gone
+
+                            // 2. Decide Next Step
+                            if (ship.exploreMission.state === 'exploring') {
+                                const nextTarget = this._findNearestUnexplored(ship, ship.owner);
+                                if (nextTarget) {
+                                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Explorer ${ship.id} moving to next target ${nextTarget.name}`);
+                                    this._moveShipWithPathfinding(ship, nextTarget.id);
+                                    return;
+                                } else {
+                                    // No more unexplored systems, return home
+                                    ship.exploreMission.state = 'returning';
+                                    if (ship.exploreMission.startSystemId) {
+                                        this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Explorer ${ship.id} returning home to ${ship.exploreMission.startSystemId}`);
+                                        this._moveShipWithPathfinding(ship, ship.exploreMission.startSystemId);
+                                        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, exploreMission: ship.exploreMission });
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // 3. Mission Complete (Returned home or finished)
+                            delete ship.exploreMission;
+                            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, exploreMission: null, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
+                            this.engine.broadcast({ type: 'GAME_TOAST', playerId: ship.owner, message: `Exploration complete.`, toastType: 'success' });
+                            return;
+                        }
                         // --- Handle Scout Mission Arrival ---
                         if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.to) {
                             // Arrived at scout destination
                             // 1. Perform scout action
                             let wasDestroyed = false;
                             if (ship.type === 'Scout' && arrivedAtSystem.visibility[ship.owner] !== 'explored') {
-                                // COUNTER-SCOUTING LOGIC
-                                const friendlyShipsInSystem = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, arrivedAtSystem));
-                                let detectionChance = 0;
-                                friendlyShipsInSystem.forEach(friendlyShip => {
-                                    if (friendlyShip.patrolSystemId === arrivedAtSystem.id && friendlyShip.type === 'Scout') {
-                                        detectionChance += 0.4;
-                                    } else {
-                                        detectionChance += 0.1;
-                                    }
-                                });
-                                detectionChance = Math.min(1.0, detectionChance);
-
-                                if (Math.random() < detectionChance) {
-                                    if (Math.random() < 0.5) {
-                                        ship.hull = 0;
-                                        wasDestroyed = true;
-                                    }
-                                }
-
+                                wasDestroyed = this._performScoutRiskCheck(ship, arrivedAtSystem);
                                 if (!wasDestroyed) {
                                     arrivedAtSystem.visibility[ship.owner] = 'scouted';
-                                    const enemyShips = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, arrivedAtSystem));
-                                    let reportedCount = enemyShips.length;
-                                    let reportedTypes = enemyShips.map(s => s.type);
-                                    if (detectionChance > 0) {
-                                        reportedCount = Math.max(0, Math.floor(enemyShips.length * (1 - detectionChance)));
-                                        reportedTypes = [];
-                                    }
-                                    const report = { shipCount: reportedCount, shipTypes: reportedTypes };
-                                    this.engine.broadcast({ type: 'GAME_SCOUT_REPORT', systemId: arrivedAtSystem.id, playerId: ship.owner, report: report });
+                                    this._broadcastScoutReport(ship, arrivedAtSystem);
                                     this.engine.broadcast({ type: 'GAME_REVEAL', systemId: arrivedAtSystem.id, playerId: ship.owner, visibility: 'scouted' });
                                 }
                             }
@@ -248,8 +262,50 @@ export class MovementService {
             // Ship is on a salvage mission and is idle. It's at the debris field.
             const targetDebris = this.engine.state.debrisFields.find(d => d.id === ship.salvageMission.to);
             if (!targetDebris) {
-                // Debris is gone, time to return home.
-                this.moveShip(ship.id, ship.salvageMission.from);
+                // Debris is gone (collected).
+                
+                // Check if we are in a controlled system and if there is more debris.
+                const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
+                let nextTarget = null;
+
+                if (currentSystem && currentSystem.owner === ship.owner) {
+                    // Find other debris in this system
+                    const debrisInSystem = this.engine.state.debrisFields.filter(d => {
+                        const dx = d.x - currentSystem.x;
+                        const dy = d.y - currentSystem.y;
+                        const r = this.engine.spatialService.getSystemEffectiveRadius(currentSystem);
+                        return (dx * dx + dy * dy) <= (r * r);
+                    });
+
+                    if (debrisInSystem.length > 0) {
+                        // Find closest debris
+                        let minDist = Infinity;
+                        debrisInSystem.forEach(d => {
+                            const dist = (d.x - ship.x) ** 2 + (d.y - ship.y) ** 2;
+                            if (dist < minDist) {
+                                minDist = dist;
+                                nextTarget = d;
+                            }
+                        });
+                    }
+                }
+
+                if (nextTarget) {
+                    // Proceed to next debris at sublight speed
+                    ship.salvageMission.to = nextTarget.id;
+                    this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
+                    
+                    ship.arrivalPoint = { x: nextTarget.x, y: nextTarget.y };
+                    ship.moveState = SHIP_STATE.MOVING;
+                    ship.targetId = null;
+                    
+                    this.engine.broadcast({ type: 'GAME_MOVE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.MOVING, arrivalPoint: ship.arrivalPoint });
+                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Salvager ${ship.id} moving to next debris ${nextTarget.id} in system ${currentSystem.name}`);
+                } else {
+                    // Done or not in controlled system. Stop and wait.
+                    delete ship.salvageMission;
+                    this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, moveState: SHIP_STATE.IDLE });
+                }
             }
         } else if (this.engine.isHost && ship.patrolSystemId) {
             // --- New Patrol Logic (HOST ONLY) ---
@@ -290,6 +346,42 @@ export class MovementService {
         }
     }
 
+    _performScoutRiskCheck(ship, system) {
+        // COUNTER-SCOUTING LOGIC
+        const friendlyShipsInSystem = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, system));
+        let detectionChance = 0;
+        friendlyShipsInSystem.forEach(friendlyShip => {
+            if (friendlyShip.patrolSystemId === system.id && friendlyShip.type === 'Scout') {
+                detectionChance += 0.4;
+            } else {
+                detectionChance += 0.1;
+            }
+        });
+        detectionChance = Math.min(1.0, detectionChance);
+
+        if (Math.random() < detectionChance) {
+            if (Math.random() < 0.5) {
+                ship.hull = 0;
+                return true; // Destroyed
+            }
+        }
+        return false;
+    }
+
+    _broadcastScoutReport(ship, system) {
+        // Calculate detection chance again for report accuracy (simplified)
+        const friendlyShipsInSystem = this.engine.state.ships.filter(s => s.owner !== ship.owner && this.engine.spatialService.isShipInSystem(s, system));
+        const enemyShips = friendlyShipsInSystem; // From scout's perspective
+        
+        let reportedCount = enemyShips.length;
+        let reportedTypes = enemyShips.map(s => s.type);
+        
+        // Simple fog: if many enemies, maybe obfuscate types? For now, full report.
+        
+        const report = { shipCount: reportedCount, shipTypes: reportedTypes };
+        this.engine.broadcast({ type: 'GAME_SCOUT_REPORT', systemId: system.id, playerId: ship.owner, report: report });
+    }
+
     _updateShipOrbit(ship, dt) {
         const system = this.engine.state.systems.find(sys => sys.id === ship.currentSystemId);
         if (!system) return;
@@ -326,6 +418,11 @@ export class MovementService {
     moveShip(shipId, targetId) {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
         if (ship) {
+            if (ship.currentSystemId === targetId) {
+                this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Ship ${ship.id} attempted to move to current system ${targetId}. Ignoring.`);
+                return;
+            }
+
             const startSystem = this.engine.spatialService.getCurrentSystem(ship);
 
             // Clear the sticky system ID when a new move order is given
@@ -463,7 +560,8 @@ export class MovementService {
     }
 
     findPath(startSystemId, targetSystemId) {
-        const systems = this.engine.state.systems;
+        const systemMap = this.engine.spatialService.getSystemMap();
+
         const queue = [[startSystemId]];
         const visited = new Set([startSystemId]);
 
@@ -475,7 +573,7 @@ export class MovementService {
                 return path.slice(1); // Return path excluding start
             }
 
-            const currentSystem = systems.find(s => s.id === currentId);
+            const currentSystem = systemMap.get(currentId);
             if (currentSystem) {
                 for (const link of currentSystem.links) {
                     if (!visited.has(link.targetId)) {
@@ -520,6 +618,95 @@ export class MovementService {
             this.moveShip(shipId, targetSystemId); // This will set targetId and broadcast
             // Also broadcast the mission state. moveShip already broadcasts targetId.
             this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: shipId, scoutMission: ship.scoutMission });
+        }
+    }
+
+    requestExploreMission(shipId) {
+        const request = {
+            type: 'GAME_REQUEST_EXPLORE_MISSION',
+            senderId: this.engine.getIdentity().guid,
+            shipId: shipId
+        };
+        if (this.engine.isHost) this.handleExploreMissionRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleExploreMissionRequest({ senderId, shipId }) {
+        if (!this.engine.isHost) return;
+        const ship = this.engine.state.ships.find(s => s.id === shipId);
+        if (!ship || ship.owner !== senderId || ship.type !== 'Scout') return;
+
+        const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
+        const startSystemId = currentSystem ? currentSystem.id : (ship.lastSystemId || null);
+
+        const target = this._findNearestUnexplored(ship, senderId);
+        if (target) {
+            ship.exploreMission = { startSystemId: startSystemId, state: 'exploring' };
+            this._moveShipWithPathfinding(ship, target.id);
+            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: shipId, exploreMission: ship.exploreMission });
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'Auto-Explore initiated.', toastType: 'info' });
+        } else {
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'No unexplored systems found.', toastType: 'warning' });
+        }
+    }
+
+    _findNearestUnexplored(ship, playerId) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        const systemMap = this.engine.spatialService.getSystemMap();
+        const exploredSystemIds = new Set();
+
+        this.engine.state.systems.forEach(sys => {
+            const vis = sys.visibility[playerId];
+            if (vis === 'explored' || vis === 'scouted') {
+                exploredSystemIds.add(sys.id);
+            }
+        });
+
+        exploredSystemIds.forEach(sysId => {
+            const sys = systemMap.get(sysId);
+            if (sys && sys.links) {
+                sys.links.forEach(link => {
+                    const targetSys = systemMap.get(link.targetId);
+                    if (targetSys) {
+                        const targetVis = targetSys.visibility[playerId];
+                        if (!targetVis || targetVis === 'unexplored') {
+                            const dx = targetSys.x - ship.x;
+                            const dy = targetSys.y - ship.y;
+                            const d = dx*dx + dy*dy;
+                            if (d < minDist) {
+                                minDist = d;
+                                nearest = targetSys;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        return nearest;
+    }
+
+    _moveShipWithPathfinding(ship, targetId) {
+        const currentSystem = this.engine.spatialService.getCurrentSystem(ship) || this.engine.state.systems.find(s => s.id === ship.currentSystemId);
+        
+        if (currentSystem) {
+            if (currentSystem.links.some(l => l.targetId === targetId)) {
+                ship.navigationPath = [];
+                this.moveShip(ship.id, targetId);
+            } else {
+                const path = this.findPath(currentSystem.id, targetId);
+                if (path && path.length > 0) {
+                    const nextStep = path.shift();
+                    ship.navigationPath = path;
+                    this.moveShip(ship.id, nextStep);
+                } else {
+                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `No path found for auto-explore from ${currentSystem.name} to ${targetId}`);
+                }
+            }
+        } else {
+            // Deep space fallback
+            this.moveShip(ship.id, targetId);
         }
     }
 

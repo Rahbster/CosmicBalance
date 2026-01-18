@@ -127,6 +127,14 @@ export class SelectionManager {
                 if (ship.type === 'Scout' && currentSystem.owner === ship.owner && !ship.patrolSystemId) {
                      actionsHtml += `<button data-action="patrol" data-ship-id="${ship.id}" data-target-id="${currentSystem.id}">Patrol System</button>`;
                 }
+                
+                // Explore Mission Button
+                if (ship.type === 'Scout' && isOwner && !ship.exploreMission) {
+                    const hasUnexplored = this.engine.state.systems.some(s => !s.visibility[this.engine.getIdentity().guid] || s.visibility[this.engine.getIdentity().guid] === 'unexplored');
+                    if (hasUnexplored) {
+                        actionsHtml += `<button data-action="explore" data-ship-id="${ship.id}">Auto-Explore</button>`;
+                    }
+                }
 
                 const viewingPlayerId = this.engine.getIdentity().guid;
                 

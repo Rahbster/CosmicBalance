@@ -24,6 +24,47 @@ export class RenderService {
                 opacity: Math.random() * 0.4 + 0.1
             });
         }
+
+        // Pre-calculate flag path
+        this.flagPath = new Path2D("M12.45 4L12 2H4v18h2v-7h5.55l.45 2h8V4h-7.55z");
+
+        // Pre-render fog brush
+        this.fogBrush = document.createElement('canvas');
+        this.fogBrush.width = 512;
+        this.fogBrush.height = 512;
+        const fCtx = this.fogBrush.getContext('2d');
+        const radius = 256;
+        const grad = fCtx.createRadialGradient(radius, radius, radius * 0.5, radius, radius, radius);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        fCtx.fillStyle = grad;
+        fCtx.beginPath();
+        fCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+        fCtx.fill();
+
+        // Pre-render generic star glow
+        this.starGlow = document.createElement('canvas');
+        this.starGlow.width = 64;
+        this.starGlow.height = 64;
+        const sCtx = this.starGlow.getContext('2d');
+        const sRadius = 32;
+        const sGrad = sCtx.createRadialGradient(sRadius, sRadius, sRadius * 0.2, sRadius, sRadius, sRadius);
+        sGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        sGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        sCtx.fillStyle = sGrad;
+        sCtx.fillRect(0, 0, 64, 64);
+
+        // Pre-render debris glow
+        this.debrisGlow = document.createElement('canvas');
+        this.debrisGlow.width = 64;
+        this.debrisGlow.height = 64;
+        const dCtx = this.debrisGlow.getContext('2d');
+        const dRadius = 32;
+        const dGrad = dCtx.createRadialGradient(dRadius, dRadius, dRadius * 0.2, dRadius, dRadius, dRadius);
+        dGrad.addColorStop(0, 'rgba(150, 150, 150, 1)');
+        dGrad.addColorStop(1, 'rgba(100, 100, 100, 0)');
+        dCtx.fillStyle = dGrad;
+        dCtx.fillRect(0, 0, 64, 64);
     }
 
     draw() {
@@ -34,6 +75,14 @@ export class RenderService {
 
         // Clear background
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Cache players for O(1) lookup during rendering
+        this.playerMap = new Map();
+        state.players.forEach(p => this.playerMap.set(p.id, p));
+
+        // Cache ships for O(1) lookup during rendering
+        const shipMap = new Map();
+        state.ships.forEach(s => shipMap.set(s.id, s));
 
         // Draw Background Stars (Screen Space)
         this.drawStars(ctx, pan);
@@ -48,14 +97,13 @@ export class RenderService {
         // Helper to check visibility based on viewing mode (Player ID or Faction Name)
         const checkVisibility = (system) => {
             if (isHostGodView) return 'explored';
-            // Check if ANY viewing player has visibility
+            let result = 'unexplored';
             for (const id of viewingIds) {
-                if (system.visibility[id] === 'explored') return 'explored';
+                const v = system.visibility[id];
+                if (v === 'explored') return 'explored';
+                if (v === 'scouted') result = 'scouted';
             }
-            for (const id of viewingIds) {
-                if (system.visibility[id] === 'scouted') return 'scouted';
-            }
-            return 'unexplored';
+            return result;
         };
 
         // 0. Draw Fog of War on top of the game world
@@ -89,7 +137,7 @@ export class RenderService {
         state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
 
         // 4. Draw Fleet Movement Paths
-        this.drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView);
+        this.drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView, shipMap);
 
         // Determine which systems are visible to the player (has ships present or owns the system)
         const visibleSystemIds = new Set();
@@ -182,9 +230,7 @@ export class RenderService {
             if (y < 0) y += height;
 
             ctx.globalAlpha = star.opacity;
-            ctx.beginPath();
-            ctx.arc(x, y, star.size, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillRect(x - star.size, y - star.size, star.size * 2, star.size * 2);
         });
         ctx.globalAlpha = 1.0;
     }
@@ -197,19 +243,13 @@ export class RenderService {
         // 1. Fill the entire map with a semi-transparent color. This is our fog layer.
         // Using red for debugging as requested. A good production value would be 'rgba(15, 17, 21, 0.85)'
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(-50000, -50000, 100000, 100000);
+        ctx.fillRect(-5000, -5000, 10000, 10000);
 
         // 2. Cut out holes for vision using destination-out
         ctx.globalCompositeOperation = 'destination-out';
 
         const cutHole = (x, y, radius) => {
-            const grad = ctx.createRadialGradient(x, y, radius * 0.5, x, y, radius);
-            grad.addColorStop(0, 'rgba(0, 0, 0, 1)'); // Opaque center of hole
-            grad.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent edge of hole
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.drawImage(this.fogBrush, x - radius, y - radius, radius * 2, radius * 2);
         };
 
         // Vision from Owned Ships
@@ -235,7 +275,7 @@ export class RenderService {
         ctx.restore(); // Restore composite operation to default ('source-over')
     }
 
-    drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView) {
+    drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView, shipMap) {
         const playersToRender = isHostGodView ? state.players : state.players.filter(p => {
             return viewingIds.includes(p.id);
         });
@@ -245,7 +285,11 @@ export class RenderService {
             if (!player.fleets) return;
 
             player.fleets.forEach(fleet => {
-                const fleetShips = state.ships.filter(s => fleet.shipIds.includes(s.id)); 
+                const fleetShips = [];
+                fleet.shipIds.forEach(id => {
+                    const s = shipMap.get(id);
+                    if (s) fleetShips.push(s);
+                });
                 if (fleetShips.length === 0) return;
 
                 // Find a representative moving ship to determine the target
@@ -349,24 +393,32 @@ export class RenderService {
     }
 
     drawSystem(ctx, system, checkVisibility) {
+        const zoom = this.gameEngine.camera.zoom;
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
         const visibility = checkVisibility(system);
         
         // In God View, the host sees everything. Otherwise, respect visibility.
         if (!isHostGodView && (!visibility || visibility === 'unexplored')) return;
 
+        // Level of Detail (LOD)
+        const drawText = zoom > 0.3;
+        const drawPlanets = zoom > 0.6;
+
         // Draw Star
         const r = system.r;
-        const grad = ctx.createRadialGradient(system.x, system.y, r * 0.2, system.x, system.y, r);
-        grad.addColorStop(0, '#FFF');
-        grad.addColorStop(0.5, system.color || '#FDB813'); // Default yellow star
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        
-        ctx.fillStyle = grad;
+        // Draw pre-rendered glow
+        ctx.drawImage(this.starGlow, system.x - r, system.y - r, r * 2, r * 2);
+
+        // Draw colored core/tint
+        ctx.fillStyle = system.color || '#FDB813';
+        ctx.globalAlpha = 0.4;
         ctx.beginPath();
-        ctx.arc(system.x, system.y, r, 0, Math.PI * 2);
+        ctx.arc(system.x, system.y, r * 0.6, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 1.0;
         
+        if (!drawText) return;
+
         // Draw System Name
         const baseFontSize = 12;
         const finalFontSize = Math.max(baseFontSize, 8 / this.gameEngine.camera.zoom); // Ensure a minimum readable size on screen
@@ -377,7 +429,7 @@ export class RenderService {
 
         // Draw Owner Flag
         if (system.owner) {
-            const owner = this.gameEngine.state.players.find(p => p.id === system.owner);
+            const owner = this.playerMap.get(system.owner);
             if (owner) {
                 const textWidth = ctx.measureText(system.name).width;
                 const scale = finalFontSize / 24; // Scale flag to match text height
@@ -389,8 +441,8 @@ export class RenderService {
 
         // Draw ownership ring in God View
         if (isHostGodView && system.owner) {
-            const ownerPlayer = this.gameEngine.state.players.find(p => p.id === system.owner);
-            const ownerColor = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
+            const owner = this.playerMap.get(system.owner);
+            const ownerColor = owner ? owner.color : '#FFFFFF';
             ctx.strokeStyle = ownerColor;
             ctx.lineWidth = 3 / this.gameEngine.camera.zoom; // Keep line width constant on screen
             ctx.beginPath();
@@ -401,7 +453,7 @@ export class RenderService {
         // Draw Capture Activity Indicator on System (if any planet is being captured)
         const activeCapture = system.planets.find(p => p.captureProgress > 0 && p.captureProgress < 100);
         if (activeCapture && (isHostGodView || visibility === 'explored')) {
-             const capturingPlayer = this.gameEngine.state.players.find(p => p.id === activeCapture.capturingTeam);
+             const capturingPlayer = this.playerMap.get(activeCapture.capturingTeam);
              if (capturingPlayer) {
                 const indicatorRadius = r + 8 + (4 / this.gameEngine.camera.zoom);
                 ctx.save();
@@ -422,7 +474,7 @@ export class RenderService {
         }
 
         // Draw Planets (Miniature representation orbiting the star)
-        if (isHostGodView || visibility === 'explored' || visibility === 'scouted') {
+        if (drawPlanets && (isHostGodView || visibility === 'explored' || visibility === 'scouted')) {
             const orbitBase = r + 10;
             const planetGap = 8;
             
@@ -449,7 +501,7 @@ export class RenderService {
 
         // Draw AI Goal in God View
         if (isHostGodView && system.owner) {
-            const owner = this.gameEngine.state.players.find(p => p.id === system.owner);
+            const owner = this.playerMap.get(system.owner);
             if (owner && owner.isAI && owner.aiGoal) {
                 // Only draw on systems with a station to reduce clutter and identify main bases
                 const hasStation = this.gameEngine.state.ships.some(s => s.owner === system.owner && s.isStation && this.gameEngine.spatialService.isShipInSystem(s, system));
@@ -487,10 +539,7 @@ export class RenderService {
         ctx.translate(x, y);
         ctx.scale(scale, scale);
         ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 4;
-        const path = new Path2D("M12.45 4L12 2H4v18h2v-7h5.55l.45 2h8V4h-7.55z");
-        ctx.fill(path);
+        ctx.fill(this.flagPath);
         ctx.restore();
     }
 
@@ -508,8 +557,8 @@ export class RenderService {
         let ringOffset = 3 / this.gameEngine.camera.zoom;
 
         if (planet.owner) {
-            const ownerPlayer = this.gameEngine.state.players.find(p => p.id === planet.owner);
-            ctx.strokeStyle = ownerPlayer ? ownerPlayer.color : '#FFFFFF';
+            const owner = this.playerMap.get(planet.owner);
+            ctx.strokeStyle = owner ? owner.color : '#FFFFFF';
             ctx.lineWidth = 2 / this.gameEngine.camera.zoom; // Make it visible like the capture ring
             ctx.beginPath();
             ctx.arc(x, y, finalRadius + ringOffset, 0, Math.PI * 2);
@@ -519,7 +568,7 @@ export class RenderService {
 
         // Draw capture progress ring
         if (planet.captureProgress > 0 && planet.captureProgress < 100) {
-            const capturingPlayer = this.gameEngine.state.players.find(p => p.id === planet.capturingTeam);
+            const capturingPlayer = this.playerMap.get(planet.capturingTeam);
             if (capturingPlayer) {
                 const captureRadius = finalRadius + ringOffset;
 
@@ -543,18 +592,12 @@ export class RenderService {
 
     drawDebris(ctx, debris) {
         const scrapAmount = debris.resources?.scrap || 0;
-        
         const opacity = 0.25;
         const radius = 10 + (scrapAmount / 20); // Scale size with amount
 
-        const grad = ctx.createRadialGradient(debris.x, debris.y, radius * 0.2, debris.x, debris.y, radius);
-        grad.addColorStop(0, `rgba(150, 150, 150, ${opacity})`);
-        grad.addColorStop(1, `rgba(100, 100, 100, 0)`);
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(debris.x, debris.y, radius, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(this.debrisGlow, debris.x - radius, debris.y - radius, radius * 2, radius * 2);
+        ctx.globalAlpha = 1.0;
     }
 
     drawSelection(ctx, checkVisibility, visibleShips) {

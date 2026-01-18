@@ -41,6 +41,8 @@ export class GameMessageHandler {
                             delete ship.patrolTarget;
                         } else if (key === 'scoutMission' && data[key] === null) {
                             delete ship.scoutMission;
+                        } else if (key === 'exploreMission' && data[key] === null) {
+                            delete ship.exploreMission;
                         } else if (key === 'salvageMission' && data[key] === null) {
                             delete ship.salvageMission;
                         } else {
@@ -95,6 +97,8 @@ export class GameMessageHandler {
             this.engine.handlePlayerUpdateRequest(data);
         } else if (data.type === 'GAME_REQUEST_SCOUT_MISSION') {
             this.engine.movementService.handleScoutMissionRequest(data);
+        } else if (data.type === 'GAME_REQUEST_EXPLORE_MISSION') {
+            this.engine.movementService.handleExploreMissionRequest(data);
         } else if (data.type === 'GAME_REQUEST_SALVAGE_MISSION') {
             this.engine.movementService.handleSalvageMissionRequest(data);
         } else if (data.type === 'GAME_REQUEST_CANCEL_BUILD') {

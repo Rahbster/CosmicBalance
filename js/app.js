@@ -274,6 +274,14 @@ function updateHostViewControls() {
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
     
+    // Inject dynamic styles for UI behavior
+    const uiStyle = document.createElement('style');
+    uiStyle.textContent = `
+        body.fullscreen-mode #ship-designer-btn-main,
+        body.fullscreen-mode #btn-open-ship-designer { display: none !important; }
+    `;
+    document.head.appendChild(uiStyle);
+
     // Initialize ChatManager here to ensure DOM is ready
     chatManager = new ChatManager({
         send: (data) => peerManager.send(data)
@@ -413,6 +421,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // This function will be called by the game engine to show the modal
     window.showScoutReport = (report) => {
+        if (report.shipCount === 0) {
+            toastManager.show('Scout Report: No ships detected.', 'info');
+            return;
+        }
         const contentEl = document.getElementById('scout-report-content');
         const shipList = report.shipTypes.join(', ') || 'None';
         contentEl.innerHTML = `<p><strong>Estimated Ships:</strong> ${report.shipCount}</p>
@@ -560,6 +572,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // If the ship is a scout, add scout actions
                 if (entity.type === 'Scout') {
+                    // Auto-Explore Option
+                    if (!entity.exploreMission) {
+                        const hasUnexplored = gameEngine.state.systems.some(s => !s.visibility[profileService.getIdentity().guid] || s.visibility[profileService.getIdentity().guid] === 'unexplored');
+                        if (hasUnexplored) {
+                            menuItems.push({
+                                label: 'Auto-Explore',
+                                action: () => {
+                                    gameEngine.requestExploreMission(entity.id);
+                                }
+                            });
+                        }
+                    }
+
                     const currentSystem = gameEngine.spatialService.getCurrentSystem(entity);
 
                     if (currentSystem) {
@@ -583,11 +608,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             });
 
                         neighborsToScout.forEach(neighbor => {
+                            const visibility = neighbor.visibility[viewingPlayerId];
+                            const isUnexplored = !visibility || visibility === 'unexplored';
+                            const actionVerb = isUnexplored ? 'Explore' : 'Scout';
+
                             menuItems.push({
-                                label: `Scout ${neighbor.name}`,
+                                label: `${actionVerb} ${neighbor.name}`,
                                 action: () => {
                                     gameEngine.requestScoutMission(entity.id, neighbor.id);
-                                    toastManager.show(`Scout mission to ${neighbor.name} initiated.`, 'info');
+                                    toastManager.show(`${actionVerb} mission to ${neighbor.name} initiated.`, 'info');
                                 }
                             });
                         });
@@ -722,6 +751,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (action === 'patrol') {
                     gameEngine.requestPatrol(shipId, targetId);
                     toastManager.show('Patrol initiated.', 'info');
+                } else if (action === 'explore') {
+                    gameEngine.requestExploreMission(shipId);
+                    // Toast handled by engine response
                 } else if (action === 'scout') {
                     gameEngine.requestScoutMission(shipId, targetId);
                     toastManager.show('Scout mission initiated.', 'info');

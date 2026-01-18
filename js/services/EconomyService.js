@@ -201,7 +201,7 @@ export class EconomyService {
                         } else {
                             spawnSystem = location;
                         }
-                        const ship = this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem, { isBuilding: true, hull: 1 });
+                        const ship = this.engine.unitService.spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem, { isBuilding: true, hull: 1 });
                         firstItem.shipId = ship.id;
 
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: owner.id, resources: owner.resources });
@@ -243,7 +243,7 @@ export class EconomyService {
                         } else {
                             // Fallback if ship was destroyed or lost during build (unlikely)
                             let spawnSystem = location.isStation ? this.engine.spatialService.getCurrentSystem(location) : location;
-                            this.engine._spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem);
+                            this.engine.unitService.spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem);
                         }
                         
                         location.buildQueue.shift();

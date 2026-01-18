@@ -118,8 +118,8 @@ export class GameSetupService {
                 if (!homeSystem.visibility) homeSystem.visibility = {};
                 homeSystem.visibility[player.id] = 'explored';
 
-                this.engine._spawnShip(player, 'SpaceStation', { x: homeSystem.x, y: homeSystem.y }, homeSystem);
-                this.engine._spawnShip(player, 'Scout', { x: homeSystem.x + 30, y: homeSystem.y + 30 }, homeSystem);
+                this.engine.unitService.spawnShip(player, 'SpaceStation', { x: homeSystem.x, y: homeSystem.y }, homeSystem);
+                this.engine.unitService.spawnShip(player, 'Scout', { x: homeSystem.x + 30, y: homeSystem.y + 30 }, homeSystem);
             }
         });
 
@@ -192,8 +192,8 @@ export class GameSetupService {
             };
 
             this.engine.state.players.push(newPlayer);
-            this.engine._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
-            this.engine._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
+            this.engine.unitService.spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
+            this.engine.unitService.spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
             
             unownedSystem.owner = newPlayer.id;
             unownedSystem.visibility[newPlayer.id] = 'explored';
@@ -268,8 +268,8 @@ export class GameSetupService {
             homePlanet.captureProgress = 100;
         }
 
-        this.engine._spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
-        this.engine._spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
+        this.engine.unitService.spawnShip(newPlayer, 'SpaceStation', { x: unownedSystem.x, y: unownedSystem.y }, unownedSystem);
+        this.engine.unitService.spawnShip(newPlayer, 'Scout', { x: unownedSystem.x + 30, y: unownedSystem.y + 30 }, unownedSystem);
 
         this.engine.broadcast({ 
             type: 'GAME_TOAST', 
