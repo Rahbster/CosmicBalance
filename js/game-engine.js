@@ -12,6 +12,7 @@ import { TechService } from './services/TechService.js';
 import { SpatialService } from './services/SpatialService.js';
 import { CameraManager } from './services/CameraManager.js';
 import { SelectionManager } from './services/SelectionManager.js';
+import { GameMessageHandler } from './services/GameMessageHandler.js';
 import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, FACTION_COLORS, DEFAULT_SHIP_DESIGNS } from './cb_constants.js';
 
 
@@ -80,6 +81,7 @@ export class GameEngine {
         this.combatService = new CombatService(this);
         this.economyService = new EconomyService(this);
         this.movementService = new MovementService(this);
+        this.messageHandler = new GameMessageHandler(this);
         
         this.lastTime = 0;
         this.uiUpdateTimer = 0;
@@ -1020,175 +1022,7 @@ export class GameEngine {
     }
 
     handlePeerMessage(data) {
-        if (data.type === 'GAME_SPAWN') {
-            this.state.ships.push(data.ship);
-        } else if (data.type === 'GAME_SET_PAUSE') {
-            console.log(`[GameEngine] Handling GAME_SET_PAUSE. Paused: ${data.paused}`);
-            this.paused = data.paused;
-            if (window.toastManager) {
-                window.toastManager.show(this.paused ? "Game Paused" : "Game Resumed", 'info');
-            }
-            if (this.isHost) this._saveState();
-        } else if (data.type === 'GAME_SET_SPEED') {
-            this.timeScale = data.speed;
-            // UI update is handled via 'local-message' event in app.js or direct binding
-        } else if (data.type === 'GAME_MOVE') {
-            const ship = this.state.ships.find(s => s.id === data.shipId);
-            if (ship) {
-                ship.moveState = data.moveState;
-                ship.targetId = data.targetId;
-                ship.arrivalPoint = data.arrivalPoint;
-                ship.currentSystemId = null;
-                if (data.navigationPath) ship.navigationPath = data.navigationPath;
-                if (data.lastSystemId) ship.lastSystemId = data.lastSystemId;
-                // Also clear patrol state when a move order is given
-                if (ship.patrolSystemId) delete ship.patrolSystemId;
-                if (ship.patrolTarget) delete ship.patrolTarget;
-            }
-        } else if (data.type === 'GAME_SHIP_UPDATE') {
-            const ship = this.state.ships.find(s => s.id === data.shipId);
-            if (ship) {
-                // Update all possible properties from the message
-                Object.keys(data).forEach(key => {
-                    if (key !== 'type' && key !== 'shipId') {
-                        if (key === 'isRepairing' && data[key] === false) {
-                            delete ship.isRepairing; delete ship.repairTimer; delete ship.totalRepairTime;
-                        } else if (key === 'patrolSystemId' && data[key] === null) {
-                            delete ship.patrolSystemId;
-                            delete ship.patrolTarget;
-                        } else if (key === 'scoutMission' && data[key] === null) {
-                            delete ship.scoutMission;
-                        } else if (key === 'salvageMission' && data[key] === null) {
-                            delete ship.salvageMission;
-                        } else {
-                            ship[key] = data[key];
-                        }
-                    }
-                });
-            }
-        } else if (data.type === 'GAME_SHIPS_DESTROYED') {
-            this.state.ships = this.state.ships.filter(s => !data.shipIds.includes(s.id));
-            if (this.selectionManager.selectedShipId && data.shipIds.includes(this.selectionManager.selectedShipId)) {
-                this.selectionManager.selectedShipId = null;
-                this.selectionManager.renderSelectedUI(); // Immediately hide the panel
-            }
-        } else if (data.type === 'GAME_DEBRIS_CREATED') {
-            this.state.debrisFields.push(data.debris);
-        } else if (data.type === 'GAME_DEBRIS_REMOVED') {
-            this.state.debrisFields = this.state.debrisFields.filter(d => !data.debrisIds.includes(d.id));
-        } else if (data.type === 'GAME_PLAYER_UPDATE') {
-            const player = this.state.players.find(p => p.id === data.playerId);
-            if (player) {
-                if (data.resources) player.resources = data.resources;
-                if (data.researchQueue) player.researchQueue = data.researchQueue;
-                if (data.update) {
-                    if (data.update.designs) player.designs = data.update.designs;
-                    Object.assign(player, data.update);
-                }
-            }
-        } else if (data.type === 'GAME_REQUEST_BUILD') {
-            // A client is requesting to spawn a ship. Only the host will process this.
-            this.economyService.handleBuildRequest(data);
-        } else if (data.type === 'GAME_BUILD_QUEUE_UPDATE') {
-            let location = this.state.systems.find(sys => sys.id === data.locationId);
-            if (!location) location = this.state.ships.find(s => s.id === data.locationId);
-            if (location) {
-                location.buildQueue = data.queue;
-                if (this.selectionManager.selectedLocationId === location.id) this.selectionManager.renderSelectedUI();
-            }
-        } else if (data.type === 'GAME_SCOUT_REPORT') {
-            const system = this.state.systems.find(sys => sys.id === data.systemId);
-            if (system && data.team === this.getTeam()) {
-                system.scoutReport = data;
-                // Re-render UI if this planet is selected
-                if (this.selectionManager.selectedLocationId === system.id) this.selectionManager.renderSelectedUI();
-            }
-        } else if (data.type === 'GAME_REQUEST_RESEARCH') {
-            this.economyService.handleResearchRequest(data);
-        } else if (data.type === 'GAME_REQUEST_PLAYER_UPDATE') {
-            this.handlePlayerUpdateRequest(data);
-        } else if (data.type === 'GAME_REQUEST_SCOUT_MISSION') {
-            this.movementService.handleScoutMissionRequest(data);
-        } else if (data.type === 'GAME_REQUEST_SALVAGE_MISSION') {
-            this.movementService.handleSalvageMissionRequest(data);
-        } else if (data.type === 'GAME_REQUEST_CANCEL_BUILD') {
-            this.economyService.handleCancelBuildRequest(data);
-        } else if (data.type === 'GAME_REQUEST_PATROL') {
-            this.movementService.handlePatrolRequest(data);
-        } else if (data.type === 'GAME_REQUEST_STOP_PATROL') {
-            this.movementService.handleStopPatrolRequest(data);
-        } else if (data.type === 'GAME_REQUEST_REPAIR_SHIP') {
-            this.economyService.handleRepairShipRequest(data);
-        } else if (data.type === 'GAME_TECH_RESEARCHED') {
-            const player = this.state.players.find(p => p.id === data.playerId);
-            if (player && !player.researchedTechs.includes(data.techId)) {
-                player.researchedTechs.push(data.techId);
-            }
-        } else if (data.type === 'GAME_REQUEST_CREATE_FLEET') {
-            this.fleetService.handleCreateFleetRequest(data);
-        } else if (data.type === 'GAME_REQUEST_UPDATE_FLEET_SHIPS') {
-            this.fleetService.handleUpdateFleetShipsRequest(data);
-        } else if (data.type === 'GAME_REQUEST_DISBAND_FLEET') {
-            this.fleetService.handleDisbandFleetRequest(data);
-        } else if (data.type === 'GAME_REQUEST_MOVE_FLEET') {
-            this.fleetService.handleMoveFleetRequest(data);
-        } else if (data.type === 'GAME_REQUEST_RENAME_FLEET') {
-            this.fleetService.handleRenameFleetRequest(data);
-        } else if (data.type === 'GAME_REQUEST_SELF_DESTRUCT') {
-            this.combatService.handleSelfDestructRequest(data);
-        } else if (data.type === 'GAME_FLEET_UPDATE') {
-            const player = this.state.players.find(p => p.id === data.playerId);
-            if (player) player.fleets = data.fleets;
-            if (data.updatedShips) {
-                data.updatedShips.forEach(shipUpdate => {
-                    const ship = this.state.ships.find(s => s.id === shipUpdate.id);
-                    if (ship) ship.fleetId = shipUpdate.fleetId;
-                });
-            }
-        } else if (data.type === 'GAME_PLANET_UPDATE') {
-            for (const system of this.state.systems) {
-                const planet = system.planets.find(p => p.id === data.planetId);
-                if (planet) {
-                    if (data.owner !== undefined) planet.owner = data.owner;
-                    if (data.captureProgress !== undefined) planet.captureProgress = data.captureProgress;
-                    if (data.capturingTeam !== undefined) planet.capturingTeam = data.capturingTeam;
-                    if (data.systemOwner !== undefined && (!data.systemId || data.systemId === system.id)) {
-                        system.owner = data.systemOwner;
-                    }
-                    break;
-                }
-            }
-        } else if (data.type === 'GAME_SYSTEM_RENAMED' || data.type === 'GAME_PLANET_RENAMED') {
-            const system = this.state.systems.find(sys => sys.id === data.systemId);
-            if (system) {
-                system.name = data.newName;
-            }
-        } else if (data.type === 'GAME_REVEAL') {
-            const system = this.state.systems.find(sys => sys.id === data.systemId);
-            if (system && data.playerId === this.getIdentity().guid) {
-                system.visibility[data.playerId] = data.visibility;
-                if (data.neighbors) {
-                    data.neighbors.forEach(linkTargetId => {
-                        const neighbor = this.state.systems.find(sys => sys.id === linkTargetId);
-                        // Only update if it's currently unexplored
-                        if (neighbor && !neighbor.visibility[data.playerId]) neighbor.visibility[data.playerId] = 'scouted';
-                    });
-                }
-            }
-        } else if (data.type === 'GAME_SCOUT_REPORT') {
-            if (data.playerId === this.getIdentity().guid) {
-                // This is a report for me. The global function is on window.
-                if (window.showScoutReport) {
-                    window.showScoutReport(data.report);
-                }
-            }
-        } else if (data.type === 'GAME_TOAST') {
-            if (data.playerId === this.getIdentity().guid) {
-                if (window.toastManager) {
-                    window.toastManager.show(data.message, data.toastType || 'info');
-                }
-            }
-        }
+        this.messageHandler.handle(data);
     }
 
     showScoutReport(report) {
