@@ -137,7 +137,7 @@ export class ShipRenderer {
         }
 
         // --- Draw Text (Screen Aligned) ---
-        const fontSize = Math.max(10, 12 / this.engine.camera.zoom);
+        const fontSize = Math.max(12, 8 / this.engine.camera.zoom);
         this.ctx.font = `bold ${fontSize}px Orbitron, sans-serif`;
         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         this.ctx.textAlign = 'center';

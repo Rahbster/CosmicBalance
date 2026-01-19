@@ -186,6 +186,7 @@ export class RenderService {
         // Draw Fleets
         fleetsToDraw.forEach((ships, fleetId) => {
             this.shipRenderer.drawFleet(fleetId, ships);
+            this.drawFleetComposition(ctx, fleetId, ships);
         });
 
         // Draw Independent Ships
@@ -814,6 +815,126 @@ export class RenderService {
             }
             ctx.restore();
         }
+    }
+
+    drawFleetComposition(ctx, fleetId, ships) {
+        const zoom = this.gameEngine.camera.zoom;
+        if (zoom < 0.8) return; // Only show when zoomed in
+
+        // Calculate centroid
+        let totalX = 0;
+        let totalY = 0;
+        ships.forEach(s => {
+            totalX += s.x;
+            totalY += s.y;
+        });
+        const cx = totalX / ships.length;
+        const cy = totalY / ships.length;
+
+        // Group ships by type
+        const counts = {};
+        ships.forEach(s => {
+            counts[s.type] = (counts[s.type] || 0) + 1;
+        });
+
+        // Sort types
+        const types = Object.keys(counts).sort();
+
+        // Layout configuration
+        const fontSize = Math.max(12, 8 / zoom);
+        const lineHeight = fontSize * 1.2;
+        const padding = Math.max(6, 4 / zoom);
+        const colGap = Math.max(8, 5 / zoom);
+        
+        ctx.font = `${fontSize}px monospace`;
+        let maxCountWidth = 0;
+        let maxTypeWidth = 0;
+        types.forEach(type => {
+            const cWidth = ctx.measureText(`${counts[type]}x`).width;
+            const tWidth = ctx.measureText(type).width;
+            if (cWidth > maxCountWidth) maxCountWidth = cWidth;
+            if (tWidth > maxTypeWidth) maxTypeWidth = tWidth;
+        });
+        
+        const contentWidth = maxCountWidth + colGap + maxTypeWidth;
+        const boxWidth = padding * 2 + contentWidth;
+        const boxHeight = (padding * 2) + (types.length * lineHeight);
+        
+        // Position bubble (Centered below fleet)
+        const offset = 40 + (20 / zoom);
+        const boxX = cx - (boxWidth / 2);
+        const boxY = cy + offset;
+
+        ctx.save();
+        
+        // Fade in based on zoom (0.8 to 1.0)
+        ctx.globalAlpha = Math.min(1.0, (zoom - 0.8) * 5);
+        
+        // Draw connecting line
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx, boxY);
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+        ctx.lineWidth = 1 / zoom;
+        ctx.stroke();
+
+        // Pulsing Glow
+        const time = this.gameEngine.state.gameTime || 0;
+        const pulse = (Math.sin(time / 800) + 1) / 2; 
+        ctx.shadowColor = `rgba(0, 190, 255, ${0.3 + pulse * 0.3})`;
+        ctx.shadowBlur = 10 / zoom;
+
+        // Draw Forerunner-style background
+        const chamfer = 8 / zoom;
+        
+        ctx.beginPath();
+        ctx.moveTo(boxX + chamfer, boxY);
+        ctx.lineTo(boxX + boxWidth - chamfer, boxY);
+        ctx.lineTo(boxX + boxWidth, boxY + chamfer);
+        ctx.lineTo(boxX + boxWidth, boxY + boxHeight - chamfer);
+        ctx.lineTo(boxX + boxWidth - chamfer, boxY + boxHeight);
+        ctx.lineTo(boxX + chamfer, boxY + boxHeight);
+        ctx.lineTo(boxX, boxY + boxHeight - chamfer);
+        ctx.lineTo(boxX, boxY + chamfer);
+        ctx.closePath();
+
+        const bgGrad = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight);
+        bgGrad.addColorStop(0, 'rgba(0, 20, 40, 0.9)');
+        bgGrad.addColorStop(1, 'rgba(0, 10, 20, 0.95)');
+        ctx.fillStyle = bgGrad;
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+        ctx.lineWidth = 1 / zoom;
+        ctx.stroke();
+
+        // Corner Accents
+        ctx.strokeStyle = 'rgba(100, 220, 255, 0.9)';
+        ctx.lineWidth = 2 / zoom;
+        ctx.beginPath();
+        ctx.moveTo(boxX, boxY + chamfer * 2); ctx.lineTo(boxX, boxY + chamfer); ctx.lineTo(boxX + chamfer, boxY); ctx.lineTo(boxX + chamfer * 2, boxY);
+        ctx.moveTo(boxX + boxWidth, boxY + boxHeight - chamfer * 2); ctx.lineTo(boxX + boxWidth, boxY + boxHeight - chamfer); ctx.lineTo(boxX + boxWidth - chamfer, boxY + boxHeight); ctx.lineTo(boxX + boxWidth - chamfer * 2, boxY + boxHeight);
+        ctx.stroke();
+
+        // Reset Shadow
+        ctx.shadowBlur = 0;
+
+        // Draw Content
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'top';
+        const contentStartY = boxY + padding;
+        const blockX = boxX + padding;
+
+        types.forEach((type, i) => {
+            const y = contentStartY + (i * lineHeight);
+            
+            ctx.textAlign = 'right';
+            ctx.fillText(`${counts[type]}x`, blockX + maxCountWidth, y);
+            
+            ctx.textAlign = 'left';
+            ctx.fillText(type, blockX + maxCountWidth + colGap, y);
+        });
+        ctx.restore();
     }
 
     createPlanetTexture(planet) {
