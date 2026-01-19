@@ -40,3 +40,7 @@ See Directory_Structure.md for a detailed breakdown of the file organization.
 *   HTML5 Canvas for rendering.
 *   Vanilla JavaScript (ES Modules).
 *   PeerJS for WebRTC networking.
+
+## Credits
+
+*   **Slide Navigator**: Adapted from [oathanrex](https://codepen.io/oathanrex).

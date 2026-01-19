@@ -279,6 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     uiStyle.textContent = `
         body.fullscreen-mode #ship-designer-btn-main,
         body.fullscreen-mode #btn-open-ship-designer { display: none !important; }
+        body.fullscreen-mode #about-btn-main { display: none !important; }
     `;
     document.head.appendChild(uiStyle);
 
@@ -329,17 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (actionButtonsContainer) {
-            const aboutBtn = document.createElement('button');
-            aboutBtn.textContent = "About";
-            aboutBtn.style.width = "100%";
-            aboutBtn.style.marginTop = "0.5rem";
-            aboutBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                closeNav();
-                showAboutModal();
-            });
-            actionButtonsContainer.appendChild(aboutBtn);
-
             const statusBtn = document.createElement('button');
             statusBtn.textContent = "Game Status";
             statusBtn.style.width = "100%";
@@ -977,6 +967,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnOpenShipDesigner = document.getElementById('btn-open-ship-designer');
         if (btnOpenShipDesigner) {
             btnOpenShipDesigner.addEventListener('click', () => shipDesignerModal.show());
+        }
+
+        const btnOpenAbout = document.getElementById('about-btn-main');
+        if (btnOpenAbout) {
+            btnOpenAbout.addEventListener('click', () => showAboutModal());
         }
 
         // UI listeners for density sliders

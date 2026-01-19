@@ -5,6 +5,7 @@ import { HULLS, COMPONENTS, DEFAULT_SHIP_DESIGNS, MAP_WIDTH, MAP_HEIGHT } from '
 let currentZoom = 1.0; // Start with a default zoom level
 
 export function startCombat(attackingFleet, defendingFleet) {
+    injectCombatStyles(); // Inject the sci-fi HUD styles
     const gameState = appState.soloGameState;
     gameState.combat.active = true;
     gameState.combat.attackingFleetId = attackingFleet.id;
@@ -73,6 +74,8 @@ export function startCombat(attackingFleet, defendingFleet) {
 
     // Hide the main ship designer button during combat
     document.getElementById('ship-designer-btn-main').classList.add('hidden');
+    const aboutBtn = document.getElementById('about-btn-main');
+    if (aboutBtn) aboutBtn.classList.add('hidden');
 
     renderCombatMap();
     renderCombatInfoPanel();
@@ -182,6 +185,8 @@ export function endCombat() {
     document.getElementById('ship-designer-view').classList.add('hidden');
     document.getElementById('starmap-view').classList.remove('hidden');
     document.getElementById('ship-designer-btn-main').classList.remove('hidden');
+    const aboutBtn = document.getElementById('about-btn-main');
+    if (aboutBtn) aboutBtn.classList.remove('hidden');
     document.getElementById('info-panel-content').innerHTML = '<h3>Sector Status</h3><p>Select a system to view details.</p>';
 }
 
@@ -392,6 +397,128 @@ function renderCombatMap() {
     }
 }
 
+function injectCombatStyles() {
+    if (document.getElementById('combat-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'combat-styles';
+    style.textContent = `
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+
+        :root {
+            --space-blue: #0a1a2f;
+            --cosmic-purple: #6c3fd1;
+            --glass-accent: #aee1f9;
+            --glass-bg: rgba(20, 30, 50, 0.75);
+            --glass-border: 1px solid rgba(174, 225, 249, 0.3);
+            --font-main: "Orbitron", Arial, sans-serif;
+            --glow: 0 0 10px var(--glass-accent), 0 0 20px var(--cosmic-purple);
+        }
+
+        /* Override default info panel container for combat */
+        #combat-map-view ~ #info-panel {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            pointer-events: none; /* Let clicks pass through to map */
+        }
+
+        /* The actual content box */
+        #info-panel-content {
+            pointer-events: auto;
+            background: var(--glass-bg);
+            border: var(--glass-border);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), var(--glow);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            color: #fff;
+            font-family: var(--font-main);
+            transition: all 0.3s ease;
+        }
+
+        #info-panel-content h3, #info-panel-content h4 {
+            color: var(--glass-accent);
+            text-shadow: 0 0 8px var(--cosmic-purple);
+            letter-spacing: 2px;
+            margin-top: 0;
+            border-bottom: 1px solid rgba(174, 225, 249, 0.2);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .combat-btn {
+            background: rgba(20, 30, 50, 0.6);
+            color: var(--glass-accent);
+            border: 1px solid var(--glass-accent);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-family: var(--font-main);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 8px;
+            width: 100%;
+            box-shadow: 0 0 5px rgba(174, 225, 249, 0.2);
+        }
+
+        .combat-btn:hover:not(:disabled) {
+            background: var(--cosmic-purple);
+            color: #fff;
+            box-shadow: 0 0 15px var(--glass-accent);
+            transform: scale(1.02);
+        }
+
+        .combat-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: #555;
+            color: #888;
+        }
+
+        .combat-stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            color: #ddd;
+        }
+
+        .combat-input {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--glass-accent);
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: var(--font-main);
+            width: 60px;
+            text-align: center;
+        }
+        
+        .combat-select {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--glass-accent);
+            color: #fff;
+            padding: 4px;
+            border-radius: 4px;
+            font-family: var(--font-main);
+            width: 100%;
+            margin-top: 2px;
+        }
+
+        .weapon-control {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 function renderCombatInfoPanel() {
     const infoPanelContent = document.getElementById('info-panel-content');
     const gameState = appState.soloGameState;
@@ -411,47 +538,66 @@ function renderCombatInfoPanel() {
     const isHost = appState.isInitiator;
 
     infoPanelContent.innerHTML = `
-        <h3>Tactical Combat</h3>
-        <p>Turn: ${gameState.combat.turn}</p>
-        <hr>
-        <div class="ai-assist-toggle" style="${!isMyShip ? 'display:none;' : ''}">
-            <label for="ai-assist-checkbox">AI Assistant:</label>
-            <input type="checkbox" id="ai-assist-checkbox" ${selectedShip.aiAssisted ? 'checked' : ''}>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Tactical HUD</h3>
+            <span style="font-size:0.8em; color:var(--glass-accent);">TURN ${gameState.combat.turn}</span>
         </div>
-        <h4>Ship: ${selectedShip.name}</h4>
-        <p>Critical Hits: ${selectedShip.criticalHits || 0} / ${selectedShip.maxHp}</p>
-        <p>Hull Integrity: ${selectedShip.hullIntegrity.toFixed(0)} / ${selectedShip.maxHullIntegrity}</p>
-        <p>Speed: ${selectedShip.speed.toFixed(0)} | Heading: ${selectedShip.heading.toFixed(0)}&deg;</p>
-        <div class="shields-display">
+        
+        <div class="ai-assist-toggle" style="${!isMyShip ? 'display:none;' : ''}; margin-bottom: 10px;">
+            <label for="ai-assist-checkbox" style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="ai-assist-checkbox" ${selectedShip.aiAssisted ? 'checked' : ''}>
+                <span style="color:var(--glass-accent);">AI Assistant</span>
+            </label>
+        </div>
+
+        <h4>${selectedShip.name}</h4>
+        <div class="combat-stat-row">
+            <span>Hull Integrity:</span>
+            <span style="color:${selectedShip.hullIntegrity < selectedShip.maxHullIntegrity * 0.5 ? '#ff4444' : '#4caf50'}">
+                ${selectedShip.hullIntegrity.toFixed(0)} / ${selectedShip.maxHullIntegrity}
+            </span>
+        </div>
+        <div class="combat-stat-row">
+            <span>Speed: ${selectedShip.speed.toFixed(0)}</span>
+            <span>Hdg: ${selectedShip.heading.toFixed(0)}&deg;</span>
+        </div>
+
+        <div class="shields-display" style="margin: 10px 0;">
             ${selectedShip.shields.map((s, i) => `<div class="shield-arc" title="Shield ${i+1}">${s}</div>`).join('')}
         </div>
+
         ${isMyShip ? `
-        <div>
-            <label for="speed-order">Set Speed:</label>
-            <input type="number" id="speed-order" value="${selectedShip.orders.targetSpeed}" min="0" max="${selectedShip.maxSpeed}">
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <div style="flex:1;">
+                <label style="font-size:0.8em; display:block; margin-bottom:2px;">Speed</label>
+                <input type="number" id="speed-order" class="combat-input" value="${selectedShip.orders.targetSpeed}" min="0" max="${selectedShip.maxSpeed}" style="width:100%">
+            </div>
+            <div style="flex:1;">
+                <label style="font-size:0.8em; display:block; margin-bottom:2px;">Heading</label>
+                <input type="number" id="heading-order" class="combat-input" value="${selectedShip.orders.targetHeading}" min="0" max="359" style="width:100%">
+            </div>
         </div>
-        <div>
-            <label for="heading-order">Set Heading:</label>
-            <input type="number" id="heading-order" value="${selectedShip.orders.targetHeading}" min="0" max="359">
-        </div>
-        <hr>
+        
         <h4>Weapons</h4>
         ${selectedShip.weapons.map((w, i) => `
             <div class="weapon-control">
-                <p class="weapon-name" data-weapon-index="${i}" style="cursor: crosshair; color: ${w.color}; text-shadow: 0 0 5px ${w.color};">
-                    ${w.name} ${w.cooldownRemaining > 0 ? `(Reloading: ${w.cooldownRemaining})` : '(Ready)'}
-                </p>
-                <select id="weapon-target-${i}">
+                <div class="weapon-name" data-weapon-index="${i}" style="cursor: crosshair; color: ${w.color}; text-shadow: 0 0 5px ${w.color}; font-size:0.9em; margin-bottom:4px; display:flex; justify-content:space-between;">
+                    <span>${w.name}</span>
+                    <span>${w.cooldownRemaining > 0 ? `RELOAD ${w.cooldownRemaining}` : 'READY'}</span>
+                </div>
+                <select id="weapon-target-${i}" class="combat-select">
                     <option value="">-- Select Target --</option>
                     ${gameState.combat.ships.filter(t => t.owner !== selectedShip.owner && !t.destroyed).map(t => `<option value="${t.id}" ${w.targetId === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                 </select>
             </div>
         `).join('')}
-        <button id="submit-orders-btn" class="theme-button">Submit Orders</button>
+        <button id="submit-orders-btn" class="combat-btn">Submit Orders</button>
         ` : ''}
-        <hr>
-        <button id="end-turn-btn" class="theme-button" ${!isHost ? 'disabled' : ''}>End Turn</button>
-        <button id="leave-combat-btn" class="theme-button">Leave Combat</button>
+        
+        <div style="margin-top:20px; border-top: 1px solid rgba(174, 225, 249, 0.2); padding-top:10px;">
+            <button id="end-turn-btn" class="combat-btn" ${!isHost ? 'disabled' : ''}>End Turn</button>
+            <button id="leave-combat-btn" class="combat-btn" style="border-color:#ff4444; color:#ff4444;">Leave Combat</button>
+        </div>
     `;
 
     document.getElementById('leave-combat-btn').onclick = endCombat;

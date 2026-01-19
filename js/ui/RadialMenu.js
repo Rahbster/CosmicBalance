@@ -22,8 +22,13 @@ export class RadialMenu {
         menu.style.top = `${y}px`;
         this.container.appendChild(menu);
 
+        // Add a central hub for visual flair
+        const hub = document.createElement('div');
+        hub.className = 'radial-menu-hub';
+        menu.appendChild(hub);
+
         const angleStep = 360 / items.length;
-        const radius = customRadius || (items.length > 5 ? 90 : 75); // Use custom radius if provided
+        const radius = customRadius || (items.length > 5 ? 110 : 90); // Increased radius for larger items
 
         items.forEach((item, index) => {
             const menuItem = document.createElement('div');
@@ -91,13 +96,60 @@ export class RadialMenu {
     _injectCSS() {
         if (document.getElementById('radial-menu-css')) return;
         const css = `
+            @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+            :root {
+                --rm-glass-bg: rgba(20, 30, 50, 0.85);
+                --rm-glass-accent: #aee1f9;
+                --rm-cosmic-purple: #6c3fd1;
+                --rm-glow: 0 0 16px var(--rm-glass-accent), 0 0 32px var(--rm-cosmic-purple);
+                --rm-font: "Orbitron", Arial, sans-serif;
+            }
+
             #radial-menu-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 5000; pointer-events: none; }
-            .radial-menu-backdrop { width: 100%; height: 100%; background: rgba(0,0,0,0.05); backdrop-filter: blur(1px); pointer-events: none; }
-            .radial-menu { position: absolute; transform: translate(-50%, -50%) scale(0.8); width: 1px; height: 1px; opacity: 0; transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; }
+            .radial-menu-backdrop { width: 100%; height: 100%; background: rgba(0,0,0,0.1); backdrop-filter: blur(2px); pointer-events: auto; }
+            
+            .radial-menu { 
+                position: absolute; 
+                transform: translate(-50%, -50%) scale(0.5); 
+                width: 0; 
+                height: 0; 
+                opacity: 0; 
+                transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+                pointer-events: none; 
+            }
             .radial-menu.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-            .radial-menu-item { position: absolute; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; transform-origin: center center; transition: transform 0.1s ease-out; pointer-events: auto; }
-            .radial-menu-item-content { width: 100%; height: 100%; background: var(--surface-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: var(--shadow); font-size: 0.75rem; text-align: center; transition: all 0.15s ease; padding: 4px; }
-            .radial-menu-item:hover .radial-menu-item-content { transform: scale(1.1); background: var(--primary-color); color: white; border-color: var(--primary-color); }
+
+            .radial-menu-hub {
+                position: absolute;
+                top: 50%; left: 50%;
+                width: 20px; height: 20px;
+                transform: translate(-50%, -50%);
+                background: var(--rm-glass-accent);
+                border-radius: 50%;
+                box-shadow: 0 0 20px var(--rm-cosmic-purple);
+                z-index: 0;
+            }
+
+            .radial-menu-item { position: absolute; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; transform-origin: center center; transition: transform 0.1s ease-out; pointer-events: auto; }
+            
+            .radial-menu-item-content { 
+                width: 100%; height: 100%; 
+                background: var(--rm-glass-bg); 
+                color: #fff; 
+                border: 1px solid rgba(174, 225, 249, 0.3); 
+                border-radius: 50%; 
+                display: flex; align-items: center; justify-content: center; 
+                cursor: pointer; 
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5); 
+                font-family: var(--rm-font); font-size: 0.75rem; text-align: center; 
+                transition: all 0.2s ease; 
+                padding: 5px;
+                text-shadow: 0 0 5px var(--rm-cosmic-purple);
+                backdrop-filter: blur(4px);
+            }
+            
+            .radial-menu-item:hover .radial-menu-item-content { transform: scale(1.15); background: var(--rm-cosmic-purple); border-color: var(--rm-glass-accent); box-shadow: var(--rm-glow); color: #fff; z-index: 10; }
         `;
         const style = document.createElement('style');
         style.id = 'radial-menu-css';

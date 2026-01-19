@@ -5,6 +5,7 @@ import { dom, appState, dataChannels } from './scripts.js';
 import { createTimerHTML, showToast } from './ui.js';
 import { startTimer, stopTimer } from './timer.js';
 import { loadDesignsFromStorage, showShipDesigner } from './modals/ShipDesignerModal.js';
+import { showAboutModal } from './modals/AboutModal.js';
 import { startCombat } from './features/TacticalCombat.js';
 import { HULLS, COMPONENTS, DEFAULT_SHIP_DESIGNS, MAP_WIDTH, MAP_HEIGHT } from './cb_constants.js';
 
@@ -67,12 +68,28 @@ export function createGrid() {
         }
     });
 
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '5px';
+    buttonContainer.style.marginTop = '5px';
+
     const designerButton = document.createElement('button');
     designerButton.textContent = 'Ship Designer';
     designerButton.id = 'ship-designer-btn-main'; // Give it an ID to be toggled
     designerButton.className = 'theme-button';
+    designerButton.style.flex = '1';
     designerButton.onclick = showShipDesigner;
-    infoPanel.appendChild(designerButton);
+    buttonContainer.appendChild(designerButton);
+
+    const aboutButton = document.createElement('button');
+    aboutButton.textContent = 'About';
+    aboutButton.id = 'about-btn-main'; // Give it an ID to be toggled
+    aboutButton.className = 'theme-button';
+    aboutButton.style.flex = '1';
+    aboutButton.onclick = showAboutModal;
+    buttonContainer.appendChild(aboutButton);
+
+    infoPanel.appendChild(buttonContainer);
 
     const gameState = appState.soloGameState;
 
