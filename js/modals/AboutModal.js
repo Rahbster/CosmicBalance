@@ -81,11 +81,11 @@ function _injectCSS() {
         #about-modal .modal-content { width: 90vw; max-width: 900px; height: 80vh; background: linear-gradient(135deg, #0a1a2f 0%, #1a2a4f 100%); color: #fff; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #aee1f9; box-shadow: 0 0 30px rgba(108, 63, 209, 0.5); }
         #carousel-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; perspective: 1000px; overflow: hidden; position: relative; }
         #stellar-carousel { position: relative; width: 100%; height: 300px; transform-style: preserve-3d; transition: transform 0.5s; display: flex; align-items: center; justify-content: center; }
-        .carousel-slide { position: absolute; width: 240px; height: 180px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(174, 225, 249, 0.3); border-radius: 16px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); backdrop-filter: blur(5px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 15px; transition: all 0.5s ease; }
-        .carousel-slide.active { background: rgba(255, 255, 255, 0.1); border-color: #aee1f9; box-shadow: 0 0 30px rgba(174, 225, 249, 0.4); z-index: 10; transform: scale(1.1); }
-        .slide-icon { font-size: 3rem; margin-bottom: 10px; filter: drop-shadow(0 0 5px #6c3fd1); }
-        .slide-title { font-size: 1.5rem; font-weight: bold; color: #aee1f9; margin-bottom: 5px; font-family: "Orbitron", sans-serif; text-shadow: 0 0 5px #6c3fd1; }
-        .slide-desc { font-size: 0.9rem; color: #ddd; line-height: 1.4; }
+        #about-modal .carousel-slide { position: absolute; width: 240px; height: 180px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(174, 225, 249, 0.3); border-radius: 16px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); backdrop-filter: blur(5px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 15px; transition: all 0.5s ease; }
+        #about-modal .carousel-slide.active { background: rgba(255, 255, 255, 0.1); border-color: #aee1f9; box-shadow: 0 0 30px rgba(174, 225, 249, 0.4); z-index: 10; transform: scale(1.1); }
+        #about-modal .slide-icon { font-size: 3rem; margin-bottom: 10px; filter: drop-shadow(0 0 5px #6c3fd1); }
+        #about-modal .slide-title { font-size: 1.5rem; font-weight: bold; color: #aee1f9; margin-bottom: 5px; font-family: "Orbitron", sans-serif; text-shadow: 0 0 5px #6c3fd1; }
+        #about-modal .slide-desc { font-size: 0.9rem; color: #ddd; line-height: 1.4; }
         #carousel-controls { margin-top: 20px; display: flex; gap: 20px; z-index: 20; }
         .nav-btn { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
         .nav-btn:hover { background: rgba(255, 255, 255, 0.3); transform: scale(1.1); box-shadow: 0 0 10px #aee1f9; }

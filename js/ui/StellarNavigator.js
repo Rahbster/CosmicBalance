@@ -7,7 +7,21 @@ export class StellarNavigator {
         this.options = options;
         this.slideCount = slides.length;
         this.activeIdx = 0;
-        this.radius = options.radius || 300; 
+        
+        const defaultStep = 360 / (this.slideCount || 1);
+        this.angleStep = (this.options.maxAngleStep) 
+            ? Math.min(defaultStep, this.options.maxAngleStep) 
+            : defaultStep;
+
+        if (options.radius) {
+            this.radius = options.radius;
+        } else if (options.slideWidth) {
+            const gap = options.slideGap || 20;
+            const angleRad = (this.angleStep * Math.PI) / 180;
+            this.radius = (angleRad > 0.001) ? (options.slideWidth + gap) / (2 * Math.sin(angleRad / 2)) : 300;
+        } else {
+            this.radius = 300; 
+        }
         this.init();
     }
 
@@ -157,6 +171,10 @@ export class StellarNavigator {
             this.dotEls.forEach((dot, i) => {
                 dot.classList.toggle("active", i === this.activeIdx);
             });
+        }
+
+        if (this.options.onChange) {
+            this.options.onChange(this.activeIdx);
         }
     }
 

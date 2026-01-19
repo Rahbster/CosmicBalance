@@ -118,7 +118,7 @@ export class RadialMenu {
                 justify-content: center;
             }
 
-            .carousel-slide {
+            #radial-menu-container .carousel-slide {
                 position: absolute;
                 width: 110px; height: 90px;
                 background: var(--rm-glass-bg); 
@@ -139,7 +139,7 @@ export class RadialMenu {
                 backface-visibility: hidden;
             }
 
-            .carousel-slide.active {
+            #radial-menu-container .carousel-slide.active {
                 background: rgba(108, 63, 209, 0.7);
                 border-color: var(--rm-glass-accent);
                 box-shadow: var(--rm-glow);
@@ -147,9 +147,9 @@ export class RadialMenu {
                 transform: scale(1.1);
             }
 
-            .slide-icon { font-size: 1.8rem; margin-bottom: 5px; filter: drop-shadow(0 0 5px var(--rm-cosmic-purple)); }
-            .slide-title { font-size: 0.85rem; font-weight: bold; color: #fff; font-family: var(--rm-font); text-shadow: 0 0 5px var(--rm-cosmic-purple); }
-            .slide-desc { display: none; }
+            #radial-menu-container .slide-icon { font-size: 1.8rem; margin-bottom: 5px; filter: drop-shadow(0 0 5px var(--rm-cosmic-purple)); }
+            #radial-menu-container .slide-title { font-size: 0.85rem; font-weight: bold; color: #fff; font-family: var(--rm-font); text-shadow: 0 0 5px var(--rm-cosmic-purple); }
+            #radial-menu-container .slide-desc { display: none; }
         `;
         const style = document.createElement('style');
         style.id = 'radial-menu-css';

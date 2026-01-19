@@ -1,4 +1,5 @@
 import { LOG_CATEGORIES, LOG_LEVELS, HULLS, COMPONENTS, DEFAULT_SHIP_DESIGNS } from '../cb_constants.js';
+import { StellarNavigator } from '../ui/StellarNavigator.js';
 
 export class ShipDesignerModal {
     constructor(engine) {
@@ -18,12 +19,18 @@ export class ShipDesignerModal {
         this.componentColumn = document.getElementById('designer-component-column');
         this.savedDesignsColumn = document.getElementById('designer-saved-designs-column');
         this.newDesignBtn = document.getElementById('new-design-btn');
+        this.helpBtn = document.getElementById('help-ship-designer-btn');
+        this.helpModal = document.getElementById('ship-designer-help-modal');
+        this.closeHelpBtn = document.getElementById('close-ship-designer-help');
 
         this.closeBtn.onclick = () => this.hide();
         this.newDesignBtn.onclick = () => this.showNewDesignSelector();
         
         this._setupDragAndDrop();
         this._populateComponentCatalog();
+
+        if (this.helpBtn) this.helpBtn.onclick = () => this.helpModal.classList.remove('hidden');
+        if (this.closeHelpBtn) this.closeHelpBtn.onclick = () => this.helpModal.classList.add('hidden');
     }
 
     show() {
@@ -135,6 +142,24 @@ export class ShipDesignerModal {
 
     showNewDesignSelector() {
         this.isEditing = true;
+        
+        const HULL_ICONS = {
+            'sz1': '⚡',
+            'sz2': '🚀',
+            'sz3': '🛸',
+            'sz4': '⚔️',
+            'sz5': '🏰'
+        };
+
+        const TECH_ICONS = {
+            1: '🔨',
+            2: '⚙️',
+            3: '🔋',
+            4: '💻',
+            5: '⚛️',
+            6: '🔮'
+        };
+
         this.layoutArea.innerHTML = `
             <div style="text-align: center;">
                 <h3>Start a New Design</h3>
@@ -142,19 +167,25 @@ export class ShipDesignerModal {
                 <div class="designer-column">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h4>1. Select Hull</h4>
-                        <span id="hull-info-text" style="font-size: 0.9rem; color: #aaa;"></span>
                     </div>
-                    <div id="hull-selector-list">
-                        ${HULLS.map(hull => `<button class="theme-button component-item" data-hull-id="${hull.id}">${hull.name}</button>`).join('')}
+                    <div id="hull-navigator-container" style="height: 300px; position: relative; perspective: 1000px; overflow: hidden; margin-bottom: 10px;">
+                        <div id="hull-carousel" class="stellar-carousel"></div>
+                    </div>
+                    <div class="hull-nav-controls" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 10px;">
+                        <button id="hull-prev" class="theme-button small">&lt;</button>
+                        <button id="hull-next" class="theme-button small">&gt;</button>
                     </div>
                 </div>
                 <div class="designer-column">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h4>2. Select Tech Level</h4>
-                        <span id="tech-info-text" style="font-size: 0.9rem; color: #aaa;"></span>
                     </div>
-                    <div id="tech-selector-list">
-                         ${[1,2,3,4,5,6].map(n => `<button class="theme-button component-item" data-tech-level="${n}">Tech ${n}</button>`).join('')}
+                    <div id="tech-navigator-container" style="height: 300px; position: relative; perspective: 1000px; overflow: hidden; margin-bottom: 10px;">
+                        <div id="tech-carousel" class="stellar-carousel"></div>
+                    </div>
+                    <div class="tech-nav-controls" style="display: flex; justify-content: center; gap: 20px; margin-bottom: 10px;">
+                        <button id="tech-prev" class="theme-button small">&lt;</button>
+                        <button id="tech-next" class="theme-button small">&gt;</button>
                     </div>
                 </div>
                 <div class="button-row" style="justify-content: center; margin-top: 20px;">
@@ -164,35 +195,60 @@ export class ShipDesignerModal {
             </div>
         `;
 
-        const hullButtons = this.layoutArea.querySelectorAll('button[data-hull-id]');
         const beginBtn = document.getElementById('begin-design-btn');
-        const techButtons = this.layoutArea.querySelectorAll('button[data-tech-level]');
-        const hullInfo = document.getElementById('hull-info-text');
-        const techInfo = document.getElementById('tech-info-text');
         const cancelBtn = document.getElementById('cancel-new-design-btn');
 
         let selectedHullId = null;
         let selectedTechLevel = 1;
 
-        hullButtons.forEach(button => {
-            button.onclick = () => {
-                hullButtons.forEach(btn => btn.classList.remove('active-hand'));
-                button.classList.add('active-hand');
-                selectedHullId = button.dataset.hullId;
-                const hull = HULLS.find(h => h.id === selectedHullId);
-                hullInfo.textContent = `Size: ${hull.size}, Mass: ${hull.mass}`;
-                beginBtn.disabled = !selectedHullId;
-            };
-        });
+        // Initialize StellarNavigator for Hulls
+        const hullSlides = HULLS.map(hull => ({
+            title: hull.name,
+            icon: HULL_ICONS[hull.id] || '🚀',
+            desc: `Size: ${hull.size} | Mass: ${hull.mass}`,
+            id: hull.id,
+            action: () => {} // Keep action for click navigation
+        }));
 
-        techButtons.forEach(button => {
-            button.onclick = () => {
-                techButtons.forEach(btn => btn.classList.remove('active-hand'));
-                button.classList.add('active-hand');
-                selectedTechLevel = parseInt(button.dataset.techLevel, 10);
-                techInfo.textContent = `Space per Tech Sector: ${9 + selectedTechLevel}`;
-            };
-        });
+        const carouselEl = document.getElementById('hull-carousel');
+        const prevBtn = document.getElementById('hull-prev');
+        const nextBtn = document.getElementById('hull-next');
+
+        if (carouselEl) {
+            new StellarNavigator(hullSlides, carouselEl, null, { prev: prevBtn, next: nextBtn }, { 
+                slideWidth: 240,
+                slideGap: 30,
+                maxAngleStep: 60,
+                onChange: (idx) => {
+                    selectedHullId = hullSlides[idx].id;
+                    beginBtn.disabled = false;
+                }
+            });
+        }
+
+        // Initialize StellarNavigator for Tech Levels
+        const techSlides = [1, 2, 3, 4, 5, 6].map(level => ({
+            title: `Tech Level ${level}`,
+            icon: TECH_ICONS[level] || '🔬',
+            desc: `Space per Tech Sector: ${9 + level}`,
+            id: level,
+            action: () => {} // Keep action for click navigation
+        }));
+
+        const techCarouselEl = document.getElementById('tech-carousel');
+        const techPrevBtn = document.getElementById('tech-prev');
+        const techNextBtn = document.getElementById('tech-next');
+
+        if (techCarouselEl) {
+            new StellarNavigator(techSlides, techCarouselEl, null, { prev: techPrevBtn, next: techNextBtn }, { 
+                slideWidth: 240,
+                slideGap: 30,
+                maxAngleStep: 60,
+                onChange: (idx) => {
+                    selectedTechLevel = techSlides[idx].id;
+                }
+            });
+        }
 
         beginBtn.onclick = () => {
             if (selectedHullId) {
@@ -455,6 +511,7 @@ export class ShipDesignerModal {
             <div id="ship-stats-grid" class="ship-stats-grid"></div>
             <div id="installed-components" class="designer-column">
                 <h4>Installed Components</h4>
+                ${isEditable ? '<div class="drag-hint">Drag components from the Catalog (Left) to this area to install them.</div>' : ''}
             </div>
             ${buttonsHTML}
         `;
@@ -523,7 +580,10 @@ export class ShipDesignerModal {
                 <div class="modal-content" style="max-width: 95vw; height: 90vh; display: flex; flex-direction: column; padding: 0;">
                     <div class="designer-header" style="padding: 10px; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center;">
                         <h2 style="margin: 0;">Ship Designer</h2>
-                        <button id="close-ship-designer-modal" class="close-modal" style="position: static;">&times;</button>
+                        <div>
+                            <button id="help-ship-designer-btn" class="theme-button small" style="margin-right: 10px; padding: 0 10px; font-weight: bold; min-width: 30px;">?</button>
+                            <button id="close-ship-designer-modal" class="close-modal" style="position: static;">&times;</button>
+                        </div>
                     </div>
                     <div class="ship-designer" style="display: flex; flex-grow: 1; overflow: hidden;">
                         <div id="designer-component-column" class="designer-column hidden" style="width: 250px; border-right: 1px solid #444; padding: 10px; overflow-y: auto;">
@@ -538,6 +598,39 @@ export class ShipDesignerModal {
                             <div id="saved-designs-list" style="flex-grow: 1;"></div>
                             <button id="new-design-btn" class="theme-button" style="margin-top: 10px;">New Design</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Help Modal -->
+            <div id="ship-designer-help-modal" class="modal hidden" style="z-index: 2100; background: rgba(0,0,0,0.8);">
+                <div class="modal-content" style="max-width: 600px; max-height: 80vh; overflow-y: auto; background: #1a1a1a; border: 1px solid #444;">
+                    <div class="designer-header" style="padding: 10px; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: #00f2ff;">Ship Design Guide</h3>
+                        <button id="close-ship-designer-help" class="close-modal" style="position: static;">&times;</button>
+                    </div>
+                    <div class="help-content" style="padding: 20px; line-height: 1.6; color: #ddd;">
+                        <h4 style="color: #aee1f9; margin-top: 0;">1. Hull & Tech Level</h4>
+                        <p><strong>Hull Size</strong> determines the base Mass and available Space. Larger hulls can carry more, but are easier to hit.</p>
+                        <p><strong>Tech Level</strong> increases the space efficiency of your ship. Higher tech means more space for components.</p>
+                        <p><em>Formula: Space = (9 + Tech Level) * 2^(Size - 1)</em></p>
+                        
+                        <h4 style="color: #aee1f9;">2. Essential Components</h4>
+                        <ul style="list-style-type: disc; padding-left: 20px;">
+                            <li><strong>Drives:</strong> Provide propulsion. Max Acceleration = Drives * 2. Requires 4 Space.</li>
+                            <li><strong>Engines:</strong> Generate Power for weapons and shields. Each Engine provides 8 Power. Requires 2 Space.</li>
+                            <li><strong>Hull:</strong> Crew quarters. Essential for operation.</li>
+                        </ul>
+
+                        <h4 style="color: #aee1f9;">3. Weapons & Defense</h4>
+                        <ul style="list-style-type: disc; padding-left: 20px;">
+                            <li><strong>Weapons:</strong> Phasers (beams) and Torpedoes (projectiles). Each weapon requires Power to fire.</li>
+                            <li><strong>Shields:</strong> Protect against damage. You can assign shields to specific arcs (1-8).</li>
+                            <li><strong>Armor:</strong> Provides a layer of defense against hull damage.</li>
+                        </ul>
+
+                        <h4 style="color: #aee1f9;">4. How to Design</h4>
+                        <p><strong>Drag and Drop</strong> components from the Catalog on the left into the "Installed Components" area.</p>
+                        <p>Watch your <strong>Space Left</strong> and <strong>Power</strong> stats. A ship with insufficient power will be vulnerable!</p>
                     </div>
                 </div>
             </div>
@@ -571,6 +664,15 @@ export class ShipDesignerModal {
             .arc-segment:nth-child(7) { transform: rotate(247.5deg); }
             .arc-segment:nth-child(8) { transform: rotate(292.5deg); }
             .designer-input { width: 100%; padding: 8px; margin-bottom: 15px; background: #333; border: 1px solid #555; color: #fff; font-size: 1.1rem; }
+            .drag-hint { color: #aaa; font-style: italic; padding: 15px; border: 2px dashed #444; border-radius: 8px; text-align: center; margin-bottom: 10px; background: rgba(0,0,0,0.2); }
+            
+            /* Carousel Styles for Designer */
+            #hull-carousel, #tech-carousel { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.5s; display: flex; align-items: center; justify-content: center; top: 20px; }
+            #ship-designer-modal .carousel-slide { position: absolute; width: 240px; height: 160px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(174, 225, 249, 0.3); border-radius: 16px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); backdrop-filter: blur(5px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 15px; transition: all 0.5s ease; cursor: pointer; }
+            #ship-designer-modal .carousel-slide.active { background: rgba(0, 160, 192, 0.3); border-color: #00f2ff; box-shadow: 0 0 20px rgba(0, 242, 255, 0.2); z-index: 10; transform: scale(1.1); }
+            #ship-designer-modal .slide-icon { font-size: 3rem; margin-bottom: 10px; filter: drop-shadow(0 0 5px #6c3fd1); }
+            #ship-designer-modal .slide-title { font-size: 1.5rem; font-weight: bold; color: #aee1f9; margin-bottom: 5px; font-family: "Orbitron", sans-serif; text-shadow: 0 0 5px #6c3fd1; }
+            #ship-designer-modal .slide-desc { font-size: 0.9rem; color: #ddd; line-height: 1.4; }
         `;
         const style = document.createElement('style');
         style.id = 'ship-designer-css';
