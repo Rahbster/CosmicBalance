@@ -14,6 +14,8 @@ Cosmic Balance is a web-based RTS where players command factions (UNSC or Covena
 *   **Combat & Fleets**: Build various ship types (Fighters, Frigates, Capital Ships), form fleets, and engage in combat.
 *   **Tech Tree**: Research new technologies to unlock upgrades and new units.
 *   **AI Opponents**: Play against AI-controlled factions.
+*   **Ship Designer**: Create custom ship designs by selecting hulls, tech levels, and components.
+*   **Game Status**: View detailed game statistics, resource graphs, and AI reports.
 *   **Save System**: Game state is persisted locally.
 
 ## Getting Started
