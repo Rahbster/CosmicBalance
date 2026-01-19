@@ -4,10 +4,10 @@ export class StellarNavigator {
         this.carouselEl = carouselEl;
         this.dotNavEl = dotNavEl;
         this.controls = controls;
+        this.options = options;
         this.slideCount = slides.length;
         this.activeIdx = 0;
         this.radius = options.radius || 300; 
-        this.angleStep = 360 / this.slideCount;
         this.init();
     }
 
@@ -121,7 +121,10 @@ export class StellarNavigator {
     }
 
     update() {
-        this.angleStep = 360 / this.slideCount;
+        const defaultStep = 360 / (this.slideCount || 1);
+        this.angleStep = (this.options.maxAngleStep) 
+            ? Math.min(defaultStep, this.options.maxAngleStep) 
+            : defaultStep;
         
         for (let i = 0; i < this.slideCount; i++) {
             // Calculate shortest angular distance for wrapping
@@ -146,7 +149,7 @@ export class StellarNavigator {
             } else {
                 this.slideEls[i].classList.remove("active");
                 this.slideEls[i].style.opacity = 0.5;
-                this.slideEls[i].style.pointerEvents = 'none';
+                this.slideEls[i].style.pointerEvents = 'auto';
             }
         }
 

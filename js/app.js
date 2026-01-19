@@ -7,6 +7,7 @@ import { ChatManager } from './ChatManager.js';
 import { GameEngine } from './game-engine.js';
 import { TechTreeModal } from './modals/TechTreeModal.js';
 import { FleetManagerModal } from './modals/FleetManagerModal.js';
+import { RadialMenu } from './ui/RadialMenu.js';
 import { LoggingModal } from './modals/LoggingModal.js';
 import { LoggingService } from './services/LoggingService.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
@@ -68,6 +69,7 @@ let fleetManagerModal = null;
 let loggingModal = null;
 let gameStatusModal = null;
 let shipDesignerModal = null;
+const radialMenu = new RadialMenu();
 
 let colorPicker = null;
 
@@ -291,92 +293,8 @@ document.addEventListener('DOMContentLoaded', () => {
         body.fullscreen-mode #ship-designer-btn-main,
         body.fullscreen-mode #btn-open-ship-designer { display: none !important; }
         body.fullscreen-mode #about-btn-main { display: none !important; }
-        
-        /* Context Slider (Right Sidenav) */
-        #context-sidenav {
-            height: 100%;
-            width: 0;
-            position: fixed;
-            z-index: 1001;
-            top: 0;
-            right: 0;
-            background-color: rgba(10, 20, 30, 0.95);
-            backdrop-filter: blur(10px);
-            overflow-x: hidden;
-            transition: 0.3s;
-            padding-top: 60px;
-            border-left: 1px solid rgba(0, 242, 255, 0.3);
-            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.5);
-            display: flex;
-            flex-direction: column;
-        }
-        #context-sidenav button {
-            padding: 12px 20px;
-            text-decoration: none;
-            font-size: 16px;
-            color: #aee1f9;
-            display: block;
-            transition: 0.2s;
-            background: none;
-            border: none;
-            text-align: left;
-            width: 100%;
-            cursor: pointer;
-            font-family: "Orbitron", sans-serif;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        #context-sidenav button:hover {
-            color: #fff;
-            background: rgba(0, 242, 255, 0.1);
-            padding-left: 25px;
-        }
-        #context-sidenav .closebtn {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            font-size: 30px;
-            width: auto;
-            padding: 0;
-            border: none;
-            color: #aee1f9;
-            background: none;
-            cursor: pointer;
-        }
-        #context-sidenav-title {
-            color: #00f2ff;
-            padding: 0 20px 20px 20px;
-            font-size: 1.2rem;
-            border-bottom: 1px solid rgba(0, 242, 255, 0.3);
-            margin: 0 0 10px 0;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
     `;
     document.head.appendChild(uiStyle);
-
-    // Create Context Slider DOM
-    const contextSidenav = document.createElement('div');
-    contextSidenav.id = 'context-sidenav';
-    contextSidenav.innerHTML = `
-        <button class="closebtn" id="close-context-sidenav">&times;</button>
-        <h3 id="context-sidenav-title">Actions</h3>
-        <div id="context-sidenav-content"></div>
-    `;
-    document.body.appendChild(contextSidenav);
-
-    const closeContextNav = () => { 
-        contextSidenav.style.width = "0"; 
-        // Only hide overlay if the left sidenav is also closed
-        if (overlay && (!sidenav || sidenav.style.width === "0" || sidenav.style.width === "")) {
-            overlay.style.display = "none";
-        }
-    };
-    
-    document.getElementById('close-context-sidenav').addEventListener('click', closeContextNav);
-    
-    if (overlay) {
-        overlay.addEventListener('click', closeContextNav);
-    }
 
     // Initialize ChatManager here to ensure DOM is ready
     chatManager = new ChatManager({
@@ -617,6 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const menuItems = [
                 {
                     label: 'Details',
+                    icon: 'ℹ️',
                     action: () => {
                         // Explicitly open the panel when "Details" is clicked in the radial menu
                         if (isSystem) {
@@ -635,6 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (entity.patrolSystemId) {
                     menuItems.push({
                         label: 'Stop Patrol',
+                        icon: '🛑',
                         action: () => {
                             gameEngine.requestStopPatrol(entity.id);
                             toastManager.show('Patrol stopped.', 'info');
@@ -650,6 +570,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (hasUnexplored) {
                             menuItems.push({
                                 label: 'Auto-Explore',
+                                icon: '🧭',
                                 action: () => {
                                     gameEngine.requestExploreMission(entity.id);
                                 }
@@ -664,6 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (currentSystem.owner === profileService.getIdentity().guid) {
                             menuItems.push({
                                 label: `Patrol ${currentSystem.name}`,
+                                icon: '🛡️',
                                 action: () => {
                                     gameEngine.requestPatrol(entity.id, currentSystem.id);
                                     toastManager.show(`Patrolling ${currentSystem.name}.`, 'info');
@@ -683,9 +605,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             const visibility = neighbor.visibility[viewingPlayerId];
                             const isUnexplored = !visibility || visibility === 'unexplored';
                             const actionVerb = isUnexplored ? 'Explore' : 'Scout';
+                            const actionIcon = isUnexplored ? '🚀' : '🔭';
 
                             menuItems.push({
                                 label: `${actionVerb} ${neighbor.name}`,
+                                icon: actionIcon,
                                 action: () => {
                                     gameEngine.requestScoutMission(entity.id, neighbor.id);
                                     toastManager.show(`${actionVerb} mission to ${neighbor.name} initiated.`, 'info');
@@ -717,6 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (hasTargets) {
                                 menuItems.push({
                                     label: `Colonize ${neighbor.name}`,
+                                    icon: '🌱',
                                     action: () => {
                                         gameEngine.moveShip(entity.id, neighbor.id);
                                         toastManager.show(`Transport sent to colonize ${neighbor.name}.`, 'info');
@@ -739,6 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (nearbyDebris.length > 0) {
                         menuItems.push({
                             label: `Recycle Debris`,
+                            icon: '♻️',
                             action: () => {
                                 const targetDebris = nearbyDebris[0]; // Target the first one found
                                 gameEngine.requestSalvageMission(entity.id, targetDebris.id);
@@ -750,6 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Auto-Recycle Option (Find nearest debris in controlled space)
                     menuItems.push({
                         label: 'Auto-Recycle',
+                        icon: '🔄',
                         action: () => {
                             gameEngine.requestSalvageMission(entity.id, null);
                             toastManager.show('Auto-Recycle mission initiated.', 'info');
@@ -761,30 +688,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (entity.isStation) {
                     menuItems.unshift({ // Add to the beginning
                         label: 'Build',
+                        icon: '🏗️',
                         action: () => gameEngine.setSelectedLocation(entity.id, true) // Explicitly open panel for build
                     });
                 }
             }
 
-            // Populate and show Context Slider instead of Radial Menu
-            const contentDiv = document.getElementById('context-sidenav-content');
-            contentDiv.innerHTML = '';
-            
-            const titleEl = document.getElementById('context-sidenav-title');
-            titleEl.textContent = entity.name || entity.type || 'Actions';
-
-            menuItems.forEach(item => {
-                const btn = document.createElement('button');
-                btn.textContent = item.label;
-                btn.onclick = () => {
-                    item.action();
-                    closeContextNav();
-                };
-                contentDiv.appendChild(btn);
-            });
-
-            contextSidenav.style.width = "280px";
-            if (overlay) overlay.style.display = "block";
+            radialMenu.show(menuItems, x, y);
         });
 
         // Listener for bottom panel actions
