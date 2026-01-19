@@ -106,10 +106,13 @@ export class EconomyService {
         }
 
         // Debris collection
-        const collectedDebrisIds = [];
-        this.engine.state.ships.filter(s => s.type === 'Salvager').forEach(ship => { // Only salvagers can collect
+        const collectedDebrisIds = new Set();
+        const salvagers = this.engine.state.ships.filter(s => s.type === 'Salvager');
+        
+        salvagers.forEach(ship => { // Only salvagers can collect
             this.engine.state.debrisFields.forEach(debris => {
-                if (collectedDebrisIds.includes(debris.id)) return;
+                if (collectedDebrisIds.has(debris.id)) return;
+                if (debris.systemId && ship.currentSystemId && debris.systemId !== ship.currentSystemId) return;
 
                 const dx = debris.x - ship.x;
                 const dy = debris.y - ship.y;
@@ -120,15 +123,15 @@ export class EconomyService {
                         player.totalResources = player.totalResources || { IO: 0, minerals: 0, energy: 0, scrap: 0 };
                         player.totalResources.scrap += debris.resources.scrap;
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
-                        collectedDebrisIds.push(debris.id);
+                        collectedDebrisIds.add(debris.id);
                     }
                 }
             });
         });
 
-        this.engine.state.debrisFields = this.engine.state.debrisFields.filter(d => !collectedDebrisIds.includes(d.id));
-        if (collectedDebrisIds.length > 0) {
-            this.engine.broadcast({ type: 'GAME_DEBRIS_REMOVED', debrisIds: collectedDebrisIds });
+        this.engine.state.debrisFields = this.engine.state.debrisFields.filter(d => !collectedDebrisIds.has(d.id));
+        if (collectedDebrisIds.size > 0) {
+            this.engine.broadcast({ type: 'GAME_DEBRIS_REMOVED', debrisIds: Array.from(collectedDebrisIds) });
         }
     }
 
@@ -310,26 +313,34 @@ export class EconomyService {
     }
 
     runAutoRepair(dt) {
+        // Optimization: Bucket damaged ships by system
+        const damagedShipsBySystem = new Map();
+        this.engine.state.ships.forEach(s => {
+            if (s.currentSystemId && s.hull < s.maxHull && !s.isRepairing && !s.isStation) {
+                if (!damagedShipsBySystem.has(s.currentSystemId)) damagedShipsBySystem.set(s.currentSystemId, []);
+                damagedShipsBySystem.get(s.currentSystemId).push(s);
+            }
+        });
+
         // Find idle stations and queue repairs
         const stations = this.engine.state.ships.filter(s => s.isStation);
         
         stations.forEach(station => {
             // Check if station is idle (no build queue)
             if (!station.buildQueue || station.buildQueue.length === 0) {
-                const system = this.engine.spatialService.getCurrentSystem(station);
-                if (!system) return;
+                const systemId = station.currentSystemId;
+                if (!systemId) return;
 
-                // Find a damaged ship in the same system owned by the same player
-                const damagedShip = this.engine.state.ships.find(s => 
-                    s.owner === station.owner &&
-                    s.currentSystemId === system.id &&
-                    s.hull < s.maxHull &&
-                    !s.isRepairing &&
-                    !s.isStation // Stations don't auto-repair themselves via this logic to prevent loops, or can if needed
-                );
-
-                if (damagedShip) {
-                    this.handleRepairShipRequest({ senderId: station.owner, shipId: damagedShip.id });
+                const candidates = damagedShipsBySystem.get(systemId);
+                if (candidates) {
+                    // Find a candidate owned by the station owner
+                    const candidateIndex = candidates.findIndex(s => s.owner === station.owner);
+                    if (candidateIndex !== -1) {
+                        const damagedShip = candidates[candidateIndex];
+                        this.handleRepairShipRequest({ senderId: station.owner, shipId: damagedShip.id });
+                        // Remove from candidates so other stations in same system don't pick it up this frame
+                        candidates.splice(candidateIndex, 1);
+                    }
                 }
             }
         });
@@ -697,5 +708,27 @@ export class EconomyService {
                 toastType: 'error'
             });
         }
+    }
+
+    requestRepairFleet(fleetId) {
+        const request = {
+            type: 'GAME_REQUEST_REPAIR_FLEET',
+            senderId: this.engine.getIdentity().guid,
+            fleetId: fleetId
+        };
+        if (this.engine.isHost) this.handleRepairFleetRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleRepairFleetRequest({ senderId, fleetId }) {
+        if (!this.engine.isHost) return;
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        const fleet = player?.fleets.find(f => f.id === fleetId);
+        if (!fleet) return;
+
+        fleet.shipIds.forEach(shipId => {
+            // Reuse existing single ship repair logic
+            this.handleRepairShipRequest({ senderId, shipId });
+        });
     }
 }

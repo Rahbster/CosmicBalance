@@ -26,6 +26,7 @@ export class FleetService {
         }
 
         const newFleet = { id: `fleet-${crypto.randomUUID()}`, name, shipIds, locationId };
+        this._recalculateFleetMaxHull(newFleet);
         player.fleets.push(newFleet);
 
         shipIds.forEach(shipId => {
@@ -115,6 +116,7 @@ export class FleetService {
         const allAffected = [...(shipIdsToAdd || []), ...(shipIdsToRemove || [])];
         const updatedShips = allAffected.map(id => ({ id, fleetId: this.engine.state.ships.find(s => s.id === id)?.fleetId || null }));
 
+        this._recalculateFleetMaxHull(fleet);
         this.engine.broadcast({ type: 'GAME_FLEET_UPDATE', playerId: senderId, fleets: player.fleets, updatedShips });
     }
 
@@ -126,5 +128,14 @@ export class FleetService {
 
         fleet.name = newName;
         this.engine.broadcast({ type: 'GAME_FLEET_UPDATE', playerId: senderId, fleets: player.fleets });
+    }
+
+    _recalculateFleetMaxHull(fleet) {
+        let total = 0;
+        fleet.shipIds.forEach(id => {
+            const ship = this.engine.state.ships.find(s => s.id === id);
+            if (ship) total += ship.maxHull;
+        });
+        fleet.totalMaxHull = total;
     }
 }

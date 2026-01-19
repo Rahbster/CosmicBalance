@@ -114,15 +114,18 @@ export class ShipRenderer {
 
         // Fleet Health Bar
         let totalHull = 0;
-        let totalMaxHull = 0;
+        let currentMaxHull = 0;
         ships.forEach(s => {
             totalHull += s.hull;
-            totalMaxHull += s.maxHull;
+            currentMaxHull += s.maxHull;
         });
+
+        // Use fleet.totalMaxHull if available and valid (greater than current visible max), otherwise fallback to current
+        const displayMaxHull = (fleet && fleet.totalMaxHull && fleet.totalMaxHull > currentMaxHull) ? fleet.totalMaxHull : currentMaxHull;
 
         let textYOffset = 25;
 
-        if (totalHull < totalMaxHull && totalMaxHull > 0) {
+        if (totalHull < displayMaxHull && displayMaxHull > 0) {
             const barWidth = 24;
             const barHeight = 4;
             const barY = 20; 
@@ -131,7 +134,7 @@ export class ShipRenderer {
             this.ctx.fillRect(-barWidth / 2, barY, barWidth, barHeight);
             
             this.ctx.fillStyle = '#0F0';
-            this.ctx.fillRect(-barWidth / 2, barY, barWidth * (totalHull / totalMaxHull), barHeight);
+            this.ctx.fillRect(-barWidth / 2, barY, barWidth * (totalHull / displayMaxHull), barHeight);
             
             textYOffset += 8; // Push text down
         }

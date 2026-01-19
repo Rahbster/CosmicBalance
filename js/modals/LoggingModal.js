@@ -24,12 +24,17 @@ export class LoggingModal {
     show() {
         this.render();
         this.modal.classList.remove('hidden');
+        if (this.engine.performanceMonitor) this.engine.performanceMonitor.enable();
+        
+        if (this.updateTimer) clearInterval(this.updateTimer);
         this.updateTimer = setInterval(() => this.renderPerformance(), 500);
     }
 
     hide() {
         this.modal.classList.add('hidden');
         if (this.updateTimer) clearInterval(this.updateTimer);
+        this.updateTimer = null;
+        if (this.engine.performanceMonitor) this.engine.performanceMonitor.disable();
     }
 
     render() {

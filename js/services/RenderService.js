@@ -66,9 +66,13 @@ export class RenderService {
         dCtx.fillStyle = dGrad;
         dCtx.fillRect(0, 0, 64, 64);
 
+        // Offscreen buffer for Fog of War
+        this.fogLayer = document.createElement('canvas');
+
         // Cache for generated planet textures
         this.planetCache = new Map();
         this.starCache = new Map();
+        this.debrisCache = new Map();
     }
 
     draw() {
@@ -76,6 +80,13 @@ export class RenderService {
         const state = this.gameEngine.state;
         const pan = this.gameEngine.camera.pan;
         const zoom = this.gameEngine.camera.zoom;
+
+        // Viewport bounds for culling
+        const viewX = -pan.x / zoom;
+        const viewY = -pan.y / zoom;
+        const viewW = this.canvas.width / zoom;
+        const viewH = this.canvas.height / zoom;
+        const buffer = 250; // Margin for culling
 
         // Clear background
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -98,65 +109,87 @@ export class RenderService {
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
         const viewingIds = this.gameEngine.getViewingPlayerIds();
         
-        // Cache visibility results for this frame to avoid O(N*M) lookups
-        const visibilityCache = new Map();
-
-        // Helper to check visibility based on viewing mode (Player ID or Faction Name)
-        const checkVisibility = (system) => {
-            if (isHostGodView) return 'explored';
-            if (visibilityCache.has(system.id)) return visibilityCache.get(system.id);
-
-            let result = 'unexplored';
-            for (const id of viewingIds) {
-                const v = system.visibility[id];
-                if (v === 'explored') return 'explored';
-                if (v === 'scouted') result = 'scouted';
-            }
-            visibilityCache.set(system.id, result);
-            return result;
-        };
+        // 1. Calculate Visibility for all systems once per frame
+        const visibilityMap = new Map();
+        const visibleSystems = [];
+        const visibleSystemIds = new Set();
+        
+        if (isHostGodView) {
+            state.systems.forEach(sys => {
+                visibilityMap.set(sys.id, 'explored');
+                visibleSystems.push(sys);
+                visibleSystemIds.add(sys.id);
+            });
+        } else {
+            state.systems.forEach(sys => {
+                let result = 'unexplored';
+                for (const id of viewingIds) {
+                    const v = sys.visibility[id];
+                    if (v === 'explored') { result = 'explored'; break; }
+                    if (v === 'scouted') result = 'scouted';
+                }
+                if (result !== 'unexplored') {
+                    visibilityMap.set(sys.id, result);
+                    visibleSystems.push(sys);
+                    visibleSystemIds.add(sys.id);
+                }
+            });
+        }
+        
+        const checkVisibility = (system) => visibilityMap.get(system.id) || 'unexplored';
 
         // 0. Draw Fog of War on top of the game world
-        this.drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility);
+        this.drawFogOfWar(ctx, state, visibleSystems, viewingIds, isHostGodView);
 
         // 0.1 Draw Watermark (World Space)
         this.drawWatermark(ctx);
 
         // 0.5. Draw Debris (Behind everything else)
         state.debrisFields.forEach(debris => {
+            // Viewport Culling
+            if (debris.x < viewX - buffer || debris.x > viewX + viewW + buffer ||
+                debris.y < viewY - buffer || debris.y > viewY + viewH + buffer) return;
+
             if (isHostGodView) {
                 this.drawDebris(ctx, debris);
             } else {
                 // Check if debris is near any explored system
-                const isVisible = state.systems.some(sys => {
-                    const visibility = checkVisibility(sys);
-                    if (!visibility || visibility === 'unexplored') return false;
-                    
-                    const dx = sys.x - debris.x;
-                    const dy = sys.y - debris.y;
-                    return (dx * dx + dy * dy) < (200 * 200);
-                });
+                let isVisible = false;
+                if (debris.systemId) {
+                    isVisible = visibleSystemIds.has(debris.systemId);
+                } else {
+                    isVisible = visibleSystems.some(sys => {
+                        const dx = sys.x - debris.x;
+                        const dy = sys.y - debris.y;
+                        return (dx * dx + dy * dy) < (200 * 200);
+                    });
+                }
                 if (isVisible) this.drawDebris(ctx, debris);
             }
         });
 
         // 1. Draw Links (Warp lanes)
-        this.drawLinks(ctx, state.systems, viewingIds, isHostGodView, checkVisibility);
+        this.drawLinks(ctx, visibleSystems, state.systems);
 
         // 2. Draw Systems (Stars and Planets)
-        state.systems.forEach(system => this.drawSystem(ctx, system, checkVisibility));
+        visibleSystems.forEach(system => {
+            if (system.x >= viewX - buffer && system.x <= viewX + viewW + buffer &&
+                system.y >= viewY - buffer && system.y <= viewY + viewH + buffer) {
+                this.drawSystem(ctx, system, checkVisibility);
+            }
+        });
 
         // 4. Draw Fleet Movement Paths
         this.drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView, shipMap);
 
         // Determine which systems are visible to the player (has ships present or owns the system)
-        const visibleSystemIds = new Set();
+        const presenceSystemIds = new Set();
         if (!isHostGodView) {
             state.systems.forEach(s => {
-                if (viewingIds.includes(s.owner)) visibleSystemIds.add(s.id);
+                if (viewingIds.includes(s.owner)) presenceSystemIds.add(s.id);
             });
             state.ships.forEach(s => {
-                if (viewingIds.includes(s.owner) && s.currentSystemId) visibleSystemIds.add(s.currentSystemId);
+                if (viewingIds.includes(s.owner) && s.currentSystemId) presenceSystemIds.add(s.currentSystemId);
             });
         }
 
@@ -165,7 +198,7 @@ export class RenderService {
             ? state.ships 
             : state.ships.filter(ship => {
                 const isOwner = viewingIds.includes(ship.owner);
-                return isOwner || (ship.currentSystemId && visibleSystemIds.has(ship.currentSystemId));
+                return isOwner || (ship.currentSystemId && presenceSystemIds.has(ship.currentSystemId));
             });
         
         // Group by fleet
@@ -246,31 +279,46 @@ export class RenderService {
         ctx.globalAlpha = 1.0;
     }
 
-    drawFogOfWar(ctx, state, viewingIds, isHostGodView, checkVisibility) {
+    drawFogOfWar(ctx, state, visibleSystems, viewingIds, isHostGodView) {
         if (isHostGodView) return;
 
-        ctx.save();
+        const width = this.canvas.width;
+        const height = this.canvas.height;
 
-        // 1. Fill the entire map with a semi-transparent color. This is our fog layer.
-        // Using red for debugging as requested. A good production value would be 'rgba(15, 17, 21, 0.85)'
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(-5000, -5000, 10000, 10000);
+        // Resize offscreen canvas if needed
+        if (this.fogLayer.width !== width || this.fogLayer.height !== height) {
+            this.fogLayer.width = width;
+            this.fogLayer.height = height;
+        }
+
+        const fCtx = this.fogLayer.getContext('2d');
+        const pan = this.gameEngine.camera.pan;
+        const zoom = this.gameEngine.camera.zoom;
+
+        // 1. Clear and Fill Fog (Screen Space)
+        fCtx.globalCompositeOperation = 'source-over';
+        fCtx.clearRect(0, 0, width, height);
+        fCtx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        fCtx.fillRect(0, 0, width, height);
 
         // 2. Cut out holes for vision using destination-out
-        ctx.globalCompositeOperation = 'destination-out';
+        fCtx.save();
+        fCtx.translate(pan.x, pan.y);
+        fCtx.scale(zoom, zoom);
+        fCtx.globalCompositeOperation = 'destination-out';
 
         // Optimization: Only cut holes for entities within the viewport (plus buffer)
         // This prevents drawing thousands of fog clearings for off-screen entities
         const buffer = 500;
-        const viewX = -this.gameEngine.camera.pan.x / this.gameEngine.camera.zoom;
-        const viewY = -this.gameEngine.camera.pan.y / this.gameEngine.camera.zoom;
-        const viewW = this.canvas.width / this.gameEngine.camera.zoom;
-        const viewH = this.canvas.height / this.gameEngine.camera.zoom;
+        const viewX = -pan.x / zoom;
+        const viewY = -pan.y / zoom;
+        const viewW = width / zoom;
+        const viewH = height / zoom;
 
         const cutHole = (x, y, radius) => {
             if (x + radius < viewX - buffer || x - radius > viewX + viewW + buffer ||
                 y + radius < viewY - buffer || y - radius > viewY + viewH + buffer) return;
-            ctx.drawImage(this.fogBrush, x - radius, y - radius, radius * 2, radius * 2);
+            fCtx.drawImage(this.fogBrush, x - radius, y - radius, radius * 2, radius * 2);
         };
 
         // Vision from Owned Ships
@@ -284,17 +332,18 @@ export class RenderService {
         });
 
         // Vision from Owned Systems
-        state.systems.forEach(system => {
-            const visibility = checkVisibility(system);
-            // Cut a hole for any system that is not completely unexplored.
-            // This includes owned, explored, and scouted systems.
-            if (visibility && visibility !== 'unexplored') {
-                const r = this.gameEngine.spatialService.getSystemEffectiveRadius(system) + 100;
-                cutHole(system.x, system.y, r);
-            }
+        visibleSystems.forEach(system => {
+            const r = this.gameEngine.spatialService.getSystemEffectiveRadius(system) + 100;
+            cutHole(system.x, system.y, r);
         });
 
-        ctx.restore(); // Restore composite operation to default ('source-over')
+        fCtx.restore();
+
+        // 3. Draw Fog Layer to Main Canvas (Screen Space)
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to identity
+        ctx.drawImage(this.fogLayer, 0, 0);
+        ctx.restore();
     }
 
     drawFleetMovementPaths(ctx, state, viewingIds, isHostGodView, shipMap) {
@@ -377,23 +426,18 @@ export class RenderService {
         });
     }
 
-    drawLinks(ctx, systems, viewingIds, isHostGodView, checkVisibility) {
+    drawLinks(ctx, visibleSystems, allSystems) {
         ctx.lineWidth = 2;
         const drawn = new Set();
         const gameTime = this.gameEngine.state.gameTime || 0;
         
-        systems.forEach(sys => {
-            const visibility = checkVisibility(sys);
-            if (!isHostGodView && (!visibility || visibility === 'unexplored')) {
-                return; // Don't draw links from an unexplored system
-            }
-
+        visibleSystems.forEach(sys => {
             sys.links.forEach(link => {
                 // Sort IDs to ensure we don't draw the same link twice
                 const key = [sys.id, link.targetId].sort().join('-');
                 if (drawn.has(key)) return;
                 
-                const target = systems.find(s => s.id === link.targetId);
+                const target = allSystems.find(s => s.id === link.targetId);
                 if (target) {
                     ctx.beginPath();
                     ctx.moveTo(sys.x, sys.y);
@@ -755,12 +799,12 @@ export class RenderService {
         const zoom = this.gameEngine.camera.zoom;
         const scrapAmount = debris.resources?.scrap || 0;
         const opacity = 0.25;
-        const radius = 10 + (scrapAmount / 20); // Scale size with amount
+        const radius = 10 + (scrapAmount / 20);
 
         // Base glow - fade out slightly when zoomed in to reveal details
         ctx.globalAlpha = zoom > 1.0 ? Math.max(0.1, opacity - (zoom - 1.0) * 0.1) : opacity;
         ctx.drawImage(this.debrisGlow, debris.x - radius, debris.y - radius, radius * 2, radius * 2);
-        ctx.globalAlpha = 1.0;
+        
 
         // Detailed Debris Chunks (High Zoom)
         if (zoom > 0.8) {
@@ -768,10 +812,37 @@ export class RenderService {
             let seed = seedStr.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a }, 0);
             const random = () => { const x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
 
-            // LOD: More, smaller, and more opaque chunks appear as you zoom in.
-            const baseChunkCount = Math.ceil(scrapAmount / 10);
-            const chunkCount = Math.min(60, Math.floor(baseChunkCount * zoom * 2));
-            
+            // Generate or retrieve cached geometry
+            let geometry = this.debrisCache.get(debris.id);
+            if (!geometry) {
+                geometry = [];
+                const chunkCount = Math.min(40, Math.ceil(scrapAmount / 5)); // Fixed count based on scrap
+                
+                for (let i = 0; i < chunkCount; i++) {
+                    const angle = random() * Math.PI * 2;
+                    const dist = Math.sqrt(random()) * (radius * 0.9);
+                    const chunkSize = (random() * 3 + 2); // Fixed world size
+                    
+                    const cx = Math.cos(angle) * dist;
+                    const cy = Math.sin(angle) * dist;
+                    const tumbleSpeed = 0.0005 * (random() - 0.5);
+                    
+                    const vertices = [];
+                    const sides = 3 + Math.floor(random() * 3);
+                    for (let j = 0; j < sides; j++) {
+                        const theta = (j / sides) * Math.PI * 2;
+                        const r = chunkSize * (0.6 + random() * 0.4);
+                        vertices.push({
+                            x: Math.cos(theta) * r,
+                            y: Math.sin(theta) * r
+                        });
+                    }
+                    
+                    geometry.push({ cx, cy, tumbleSpeed, vertices });
+                }
+                this.debrisCache.set(debris.id, geometry);
+            }
+
             ctx.save();
             ctx.translate(debris.x, debris.y);
             
@@ -785,36 +856,33 @@ export class RenderService {
             ctx.strokeStyle = '#444444';
             ctx.lineWidth = 0.5 / zoom;
 
-            for (let i = 0; i < chunkCount; i++) {
-                const angle = random() * Math.PI * 2;
-                const dist = Math.sqrt(random()) * (radius * 0.9); 
-                const baseChunkSize = 5;
-                const chunkSize = (random() * (baseChunkSize / zoom) + (1.5 / zoom));
-                
-                const cx = Math.cos(angle) * dist;
-                const cy = Math.sin(angle) * dist;
+            ctx.beginPath();
 
-                ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(time * 0.0005 * (random() - 0.5)); // Individual tumble
+            geometry.forEach(chunk => {
+                const tumbleAngle = time * chunk.tumbleSpeed;
+                const cosT = Math.cos(tumbleAngle);
+                const sinT = Math.sin(tumbleAngle);
 
-                ctx.beginPath();
-                const sides = 3 + Math.floor(random() * 3); // Triangles to Pentagons
-                for (let j = 0; j < sides; j++) {
-                    const theta = (j / sides) * Math.PI * 2;
-                    const r = chunkSize * (0.6 + random() * 0.4);
-                    const px = Math.cos(theta) * r;
-                    const py = Math.sin(theta) * r;
+                chunk.vertices.forEach((v, j) => {
+                    // Rotate vertex
+                    const rvx = v.x * cosT - v.y * sinT;
+                    const rvy = v.x * sinT + v.y * cosT;
+
+                    // Translate to position
+                    const px = chunk.cx + rvx;
+                    const py = chunk.cy + rvy;
+
                     if (j === 0) ctx.moveTo(px, py);
                     else ctx.lineTo(px, py);
-                }
+                });
                 ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                ctx.restore();
-            }
+            });
+            
+            ctx.fill();
+            ctx.stroke();
             ctx.restore();
         }
+        ctx.globalAlpha = 1.0;
     }
 
     drawFleetComposition(ctx, fleetId, ships) {

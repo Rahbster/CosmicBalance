@@ -402,6 +402,22 @@ export class SelectionManager {
                     // "OK" ships are hidden to declutter the Repair Bay
                 }
 
+                // Fleet Repair Options
+                const fleetsInSystem = new Set();
+                dockedShips.forEach(s => {
+                    if (s.fleetId) fleetsInSystem.add(s.fleetId);
+                });
+
+                if (fleetsInSystem.size > 0) {
+                    fleetsInSystem.forEach(fleetId => {
+                        const fleet = localPlayer.fleets.find(f => f.id === fleetId);
+                        const needsRepair = dockedShips.some(s => s.fleetId === fleetId && s.hull < s.maxHull);
+                        if (fleet && needsRepair) {
+                            listContent += `<li style="border-top:1px solid #444; margin-top:5px; padding-top:5px;"><span>${fleet.name}</span><button data-action="repair-fleet" data-fleet-id="${fleet.id}">Repair Fleet</button></li>`;
+                        }
+                    });
+                }
+
                 if (listContent) {
                     repairBayHtml = `<h4>Repair Bay</h4><ul class="repair-bay-list">${listContent}</ul>`;
                 }

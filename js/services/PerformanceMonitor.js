@@ -1,11 +1,21 @@
 export class PerformanceMonitor {
     constructor() {
+        this.enabled = false;
         this.metrics = {};
         this.history = {};
         this.historyLength = 60; // Keep 60 frames of history
     }
 
+    enable() {
+        this.enabled = true;
+    }
+
+    disable() {
+        this.enabled = false;
+    }
+
     start(label) {
+        if (!this.enabled) return;
         if (!this.metrics[label]) {
             this.metrics[label] = { start: 0, total: 0, count: 0, max: 0 };
         }
@@ -13,6 +23,7 @@ export class PerformanceMonitor {
     }
 
     end(label) {
+        if (!this.enabled) return;
         if (this.metrics[label] && this.metrics[label].start > 0) {
             const duration = performance.now() - this.metrics[label].start;
             this.metrics[label].total += duration;

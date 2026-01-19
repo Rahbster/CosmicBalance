@@ -56,6 +56,9 @@ export class CombatService {
                         }
                     }
                 });
+
+                // Handle AI Retreat Logic if overwhelmed
+                this._handleRetreatLogic(ships, planetId);
             }
         }
 
@@ -63,18 +66,20 @@ export class CombatService {
         const destroyedShips = this.engine.state.ships.filter(s => s.hull <= 0);
         if (destroyedShips.length > 0) {
             destroyedShips.forEach(ship => {
+                // Find the system name for the toast message and debris association
+                const system = this.engine.spatialService.getClosestSystem(ship);
+
                 // Create debris field
                 const debris = {
                     id: `debris-${crypto.randomUUID()}`,
                     x: ship.x,
                     y: ship.y,
+                    systemId: system ? system.id : null,
                     resources: { scrap: 50 }
                 };
                 this.engine.state.debrisFields.push(debris);
                 this.engine.broadcast({ type: 'GAME_DEBRIS_CREATED', debris });
 
-                // Find the system name for the toast message
-                const system = this.engine.spatialService.getClosestSystem(ship);
                 const owner = this.engine.state.players.find(p => p.id === ship.owner);
                 if (owner && !owner.isAI) {
                     this.engine.broadcast({ 
@@ -97,18 +102,117 @@ export class CombatService {
         }
     }
 
+    _handleRetreatLogic(ships, currentSystemId) {
+        // Group by team to calculate stats (HP and DPS) for outcome prediction
+        const teamStats = {};
+        ships.forEach(s => {
+            if (s.hull <= 0) return;
+            if (!teamStats[s.team]) teamStats[s.team] = { hp: 0, dps: 0 };
+            teamStats[s.team].hp += (s.hull + s.shield);
+            teamStats[s.team].dps += (s.damage || 0);
+        });
+
+        const teams = Object.keys(teamStats);
+        if (teams.length < 2) return;
+
+        teams.forEach(team => {
+            let enemyHP = 0;
+            let enemyDPS = 0;
+            teams.forEach(t => {
+                if (t !== team) {
+                    enemyHP += teamStats[t].hp;
+                    enemyDPS += teamStats[t].dps;
+                }
+            });
+
+            if (enemyDPS > 0) {
+                const myStats = teamStats[team];
+                // Calculate Time To Live (TTL) for both sides to predict outcome
+                const myTTL = myStats.hp / enemyDPS;
+                const enemyTTL = myStats.dps > 0 ? enemyHP / myStats.dps : Infinity;
+
+                // Retreat if the battle is futile (we die significantly faster than the enemy)
+                // Threshold 0.5 means we retreat if we are projected to deal less than 50% of enemy HP before dying
+                if (myTTL < enemyTTL * 0.5) {
+                    const potentialRetreaters = ships.filter(s => 
+                        s.team === team && !s.targetId && !s.isStation && s.hull > 0
+                    );
+
+                    if (potentialRetreaters.length > 0) {
+                        // Group by owner to find appropriate retreat targets
+                        const shipsByOwner = {};
+                        potentialRetreaters.forEach(s => {
+                            if (!shipsByOwner[s.owner]) shipsByOwner[s.owner] = [];
+                            shipsByOwner[s.owner].push(s);
+                        });
+
+                        Object.keys(shipsByOwner).forEach(ownerId => {
+                            const player = this.engine.state.players.find(p => p.id === ownerId);
+                            if (player && player.isAI) {
+                                const retreatSystem = this._findRetreatTarget(currentSystemId, ownerId);
+                                if (retreatSystem) {
+                                    shipsByOwner[ownerId].forEach(ship => {
+                                        this.engine.moveShip(ship.id, retreatSystem.id);
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    _findRetreatTarget(currentSystemId, playerId) {
+        const systems = this.engine.state.systems;
+        const currentSystem = systems.find(s => s.id === currentSystemId);
+        if (!currentSystem) return null;
+
+        let bestSystem = null;
+        let minDistSq = Infinity;
+
+        for (const sys of systems) {
+            if (sys.id === currentSystemId) continue;
+            if (sys.owner === playerId) {
+                const dx = sys.x - currentSystem.x;
+                const dy = sys.y - currentSystem.y;
+                const distSq = dx*dx + dy*dy;
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                    bestSystem = sys;
+                }
+            }
+        }
+        return bestSystem;
+    }
+
     runCaptureLogic(dt) {
         const CAPTURE_POINTS_PER_SECOND = 10;
         const DECAY_POINTS_PER_SECOND = 5;
 
+        // Cache player teams for this frame to avoid O(N) lookups inside the loop
+        const playerTeams = new Map();
+        this.engine.state.players.forEach(p => playerTeams.set(p.id, p.team));
+
+        // Optimization: Bucket ships by system to avoid O(N*M) lookups
+        const shipsBySystem = new Map();
+        this.engine.state.ships.forEach(s => {
+            if (s.currentSystemId) {
+                if (!shipsBySystem.has(s.currentSystemId)) shipsBySystem.set(s.currentSystemId, []);
+                shipsBySystem.get(s.currentSystemId).push(s);
+            }
+        });
+
         this.engine.state.systems.forEach(system => {
             const effectiveRadius = this.engine.spatialService.getSystemEffectiveRadius(system);
-            const orbitingTransports = this.engine.state.ships.filter(ship => {
+            const effectiveRadiusSq = effectiveRadius * effectiveRadius;
+            const systemShips = shipsBySystem.get(system.id) || [];
+
+            const orbitingTransports = systemShips.filter(ship => {
                 if (ship.type !== 'TroopTransport') return false;
-                if (ship.currentSystemId !== system.id) return false; // Must be logically in the system
                 const dx = system.x - ship.x;
                 const dy = system.y - ship.y;
-                return (dx*dx + dy*dy) <= (effectiveRadius * effectiveRadius);
+                return (dx*dx + dy*dy) <= effectiveRadiusSq;
             });
 
             const ownersPresent = [...new Set(orbitingTransports.map(s => s.owner))];
@@ -120,12 +224,11 @@ export class CombatService {
 
                 // Check if there are ANY enemy ships in orbit (not just transports).
                 // You cannot capture a planet if the orbit is contested.
-                const enemiesInOrbit = this.engine.state.ships.some(s => {
-                    if (s.currentSystemId !== system.id) return false;
+                const enemiesInOrbit = systemShips.some(s => {
                     // Check if within effective radius
                     const dx = system.x - s.x;
                     const dy = system.y - s.y;
-                    if ((dx*dx + dy*dy) > (effectiveRadius * effectiveRadius)) return false;
+                    if ((dx*dx + dy*dy) > effectiveRadiusSq) return false;
 
                     const shipOwner = this.engine.state.players.find(p => p.id === s.owner);
                     // It's an enemy if they are on a different team
@@ -146,7 +249,7 @@ export class CombatService {
                 // 1. Enemy Planets (Neutralize)
                 // 2. Neutral Planets (Capture)
                 // 3. Own Planets (Reinforce/Heal)
-                activeTarget = system.planets.find(p => p.owner && p.owner !== capturingOwnerId && this.engine.state.players.find(pl => pl.id === p.owner)?.team !== capturingPlayer.team);
+                activeTarget = system.planets.find(p => p.owner && p.owner !== capturingOwnerId && playerTeams.get(p.owner) !== capturingPlayer.team);
                 
                 if (!activeTarget) {
                     activeTarget = system.planets.find(p => !p.owner);

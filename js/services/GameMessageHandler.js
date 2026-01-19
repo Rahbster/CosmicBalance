@@ -109,6 +109,8 @@ export class GameMessageHandler {
             this.engine.movementService.handleStopPatrolRequest(data);
         } else if (data.type === 'GAME_REQUEST_REPAIR_SHIP') {
             this.engine.economyService.handleRepairShipRequest(data);
+        } else if (data.type === 'GAME_REQUEST_REPAIR_FLEET') {
+            this.engine.economyService.handleRepairFleetRequest(data);
         } else if (data.type === 'GAME_TECH_RESEARCHED') {
             const player = this.engine.state.players.find(p => p.id === data.playerId);
             if (player && !player.researchedTechs.includes(data.techId)) {
