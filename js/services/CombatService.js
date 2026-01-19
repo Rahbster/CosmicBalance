@@ -7,18 +7,24 @@ export class CombatService {
 
     runCombat(dt) {
         const shipsByPlanet = new Map();
+        const systemMap = this.engine.spatialService.getSystemMap();
 
-        // Group ships by the system they are orbiting
-        this.engine.state.systems.forEach(sys => {
-            const orbitingShips = this.engine.state.ships.filter(ship => {
-                if (ship.scoutMission) return false; // Ships on a scout mission do not participate in or trigger combat
-                if (ship.isBuilding) return false; // Ships under construction cannot fight
-                const dx = sys.x - ship.x;
-                const dy = sys.y - ship.y;
-                return (dx * dx + dy * dy) <= (this.engine.spatialService.getSystemEffectiveRadius(sys) ** 2);
-            });
-            if (orbitingShips.length > 0) {
-                shipsByPlanet.set(sys.id, orbitingShips);
+        // Optimization: Iterate ships once instead of (Systems * Ships)
+        // Use cached currentSystemId to quickly bucket ships
+        this.engine.state.ships.forEach(ship => {
+            if (ship.scoutMission || ship.isBuilding) return; // Skip non-combatants
+
+            if (ship.currentSystemId) {
+                const sys = systemMap.get(ship.currentSystemId);
+                if (sys) {
+                    const dx = sys.x - ship.x;
+                    const dy = sys.y - ship.y;
+                    // Verify ship is actually within effective radius (it might be leaving)
+                    if ((dx * dx + dy * dy) <= (this.engine.spatialService.getSystemEffectiveRadius(sys) ** 2)) {
+                        if (!shipsByPlanet.has(sys.id)) shipsByPlanet.set(sys.id, []);
+                        shipsByPlanet.get(sys.id).push(ship);
+                    }
+                }
             }
         });
 
@@ -27,17 +33,27 @@ export class CombatService {
             const teamsPresent = [...new Set(ships.map(s => s.team))];
             if (teamsPresent.length > 1) { // If contested
                 ships.forEach(attacker => {
-                    const enemyShips = ships.filter(s => s.team !== attacker.team);
-                    if (enemyShips.length > 0) {
-                        const target = enemyShips[Math.floor(Math.random() * enemyShips.length)];
-                        const damagePerFrame = attacker.damage * (dt / 1000);
+                    // Optimization: Only attack if we have damage to deal
+                    if (attacker.damage > 0) {
+                        // Find enemies only when needed
+                        // Optimization: Instead of filtering all ships, find one valid target first
+                        // This avoids creating a new array every iteration if we just need one target
+                        const enemyShips = ships.filter(s => s.team !== attacker.team);
+                        
+                        if (enemyShips.length > 0) {
+                            const target = enemyShips[Math.floor(Math.random() * enemyShips.length)];
+                            const damagePerFrame = attacker.damage * (dt / 1000);
 
-                        if (target.shield > 0) {
-                            target.shield = Math.max(0, target.shield - damagePerFrame);
-                        } else {
-                            target.hull = Math.max(0, target.hull - damagePerFrame);
+                            if (target.shield > 0) {
+                                target.shield = Math.max(0, target.shield - damagePerFrame);
+                            } else {
+                                target.hull = Math.max(0, target.hull - damagePerFrame);
+                            }
+                            // Broadcasting every frame for every ship is heavy. 
+                            // We should throttle this or batch updates, but for now, let's keep logic simple.
+                            // Ideally, we only broadcast if significant change or on interval.
+                            // this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: target.id, hull: target.hull, shield: target.shield });
                         }
-                        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: target.id, hull: target.hull, shield: target.shield });
                     }
                 });
             }

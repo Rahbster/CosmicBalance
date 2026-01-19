@@ -80,7 +80,9 @@ export class AIFleetManager {
 
                 if (travelTime === Infinity) return null;
 
-                const value = (debris.resources.scrap || 0) / (1 + travelTime);
+                // Prioritize high-value debris fields by adding a base time cost (20s)
+                // This reduces the bias for extremely close small debris fields.
+                const value = (debris.resources.scrap || 0) / (20 + travelTime);
                 return { debris, value };
             })
             .filter(item => item !== null);
@@ -90,7 +92,8 @@ export class AIFleetManager {
         valuedDebris.sort((a, b) => b.value - a.value);
         const bestTarget = valuedDebris[0];
 
-        const valueThreshold = 2 / scrapNeedFactor;
+        // Adjusted threshold for new value formula
+        const valueThreshold = 0.5 / scrapNeedFactor;
 
         if (bestTarget.value > valueThreshold) {
             this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Salvager ${salvager.id} targeting debris ${bestTarget.debris.id} with value ${bestTarget.value.toFixed(1)} (Threshold: ${valueThreshold.toFixed(1)})`);

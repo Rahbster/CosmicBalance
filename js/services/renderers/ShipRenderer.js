@@ -234,12 +234,32 @@ export class ShipRenderer {
         // Repair/Upgrade Indicator
         if (ship.isRepairing || ship.isBuilding) {
             const iconSize = 14 / this.engine.camera.zoom;
-            this.ctx.font = `px sans-serif`;
+            this.ctx.font = `${iconSize}px sans-serif`;
             this.ctx.fillStyle = '#FFD700';
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             const shouldDraw = !ship.isBuilding || (Math.floor(Date.now() / 500) % 2 === 0);
             if (shouldDraw) this.ctx.fillText('🔧', 15, 0);
+        }
+
+        // Salvage Mission Indicator
+        if (ship.salvageMission) {
+            const iconSize = 14 / this.engine.camera.zoom;
+            this.ctx.font = `${iconSize}px sans-serif`;
+            this.ctx.fillStyle = '#00FF00';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('♻️', -15, 0);
+        }
+
+        // Scout/Explore Mission Indicator
+        if (ship.scoutMission || ship.exploreMission) {
+            const iconSize = 14 / this.engine.camera.zoom;
+            this.ctx.font = `${iconSize}px sans-serif`;
+            this.ctx.fillStyle = '#00FFFF';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('🔍', -15, 0);
         }
 
         this.ctx.restore();
@@ -382,12 +402,32 @@ export class ShipRenderer {
         // Repair/Upgrade Indicator
         if (ship.isRepairing || ship.isBuilding) {
             const iconSize = 14 / this.engine.camera.zoom;
-            this.ctx.font = `px sans-serif`;
+            this.ctx.font = `${iconSize}px sans-serif`;
             this.ctx.fillStyle = '#FFD700'; 
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             const shouldDraw = !ship.isBuilding || (Math.floor(Date.now() / 500) % 2 === 0);
             if (shouldDraw) this.ctx.fillText('🔧', 15, 0); 
+        }
+
+        // Salvage Mission Indicator
+        if (ship.salvageMission) {
+            const iconSize = 14 / this.engine.camera.zoom;
+            this.ctx.font = `${iconSize}px sans-serif`;
+            this.ctx.fillStyle = '#00FF00';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('♻️', -15, 0);
+        }
+
+        // Scout/Explore Mission Indicator
+        if (ship.scoutMission || ship.exploreMission) {
+            const iconSize = 14 / this.engine.camera.zoom;
+            this.ctx.font = `${iconSize}px sans-serif`;
+            this.ctx.fillStyle = '#00FFFF';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('🔍', -15, 0);
         }
 
         this.ctx.restore();

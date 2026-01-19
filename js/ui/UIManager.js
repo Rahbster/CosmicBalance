@@ -134,8 +134,17 @@ export class UIManager {
         // Update System Counts by Participant
         if (this.systemListContainer) {
             this.systemListContainer.innerHTML = '';
+            
+            // Optimization: Count systems in one pass to avoid O(Players * Systems) complexity
+            const systemCounts = {};
+            this.gameEngine.state.systems.forEach(s => {
+                if (s.owner) {
+                    systemCounts[s.owner] = (systemCounts[s.owner] || 0) + 1;
+                }
+            });
+
             this.gameEngine.state.players.forEach(p => {
-                const count = this.gameEngine.state.systems.filter(s => s.owner === p.id).length;
+                const count = systemCounts[p.id] || 0;
                 
                 const span = document.createElement('span');
                 span.title = `${p.factionName} Controlled Systems`;

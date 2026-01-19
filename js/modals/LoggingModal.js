@@ -9,6 +9,7 @@ export class LoggingModal {
         this.modal = document.getElementById('logging-modal');
         this.closeBtn = document.getElementById('close-logging-modal');
         this.contentContainer = document.getElementById('logging-content');
+        this.perfContainer = document.getElementById('performance-content');
 
         this.closeBtn.onclick = () => this.hide();
         this.modal.onclick = (e) => {
@@ -16,15 +17,19 @@ export class LoggingModal {
                 this.hide();
             }
         };
+        
+        this.updateTimer = null;
     }
 
     show() {
         this.render();
         this.modal.classList.remove('hidden');
+        this.updateTimer = setInterval(() => this.renderPerformance(), 500);
     }
 
     hide() {
         this.modal.classList.add('hidden');
+        if (this.updateTimer) clearInterval(this.updateTimer);
     }
 
     render() {
@@ -62,6 +67,26 @@ export class LoggingModal {
         });
     }
 
+    renderPerformance() {
+        if (!this.engine.performanceMonitor || !this.perfContainer) return;
+        
+        const snapshot = this.engine.performanceMonitor.snapshot();
+        let html = '<div class="perf-grid">';
+        
+        for (const [label, data] of Object.entries(snapshot)) {
+            // Color code based on time: <5ms green, <16ms yellow, >16ms red
+            const color = data.avg < 5 ? '#4caf50' : (data.avg < 16 ? '#ffc107' : '#f44336');
+            html += `
+                <div class="perf-item">
+                    <span class="perf-label">${label}</span>
+                    <span class="perf-value" style="color: ${color}">${data.avg.toFixed(2)} ms (Max: ${data.max.toFixed(2)})</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+        this.perfContainer.innerHTML = html;
+    }
+
     _injectHTML() {
         if (document.getElementById('logging-modal')) return;
         const html = `
@@ -71,6 +96,8 @@ export class LoggingModal {
                     <h2>Logging Configuration</h2>
                     <p>Set verbosity levels (0=Critical, 5=Trace)</p>
                     <div id="logging-content"></div>
+                    <h3 style="margin-top: 20px; border-top: 1px solid #444; padding-top: 10px;">Performance Monitor</h3>
+                    <div id="performance-content"></div>
                 </div>
             </div>`;
         document.body.insertAdjacentHTML('beforeend', html);
@@ -84,6 +111,8 @@ export class LoggingModal {
             .slider-container { display: flex; align-items: center; gap: 10px; width: 60%; }
             .logging-slider { flex-grow: 1; }
             .level-display { width: 100px; text-align: right; font-family: monospace; }
+            .perf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .perf-item { display: flex; justify-content: space-between; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px; }
         `;
         const style = document.createElement('style');
         style.id = 'logging-css';

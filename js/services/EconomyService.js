@@ -18,19 +18,30 @@ export class EconomyService {
             let hasIncome = false;
             const income = { IO: 0, minerals: 0, energy: 0, scrap: 0 };
 
-            // Calculate total income from all owned planets
-            this.engine.state.systems.forEach(system => {
-                system.planets.forEach(planet => {
-                    if (planet.owner === player.id) {
-                        const typeData = PLANET_TYPES[planet.type];
-                        if (typeData && typeData.yields) {
-                            for (const [resource, amount] of Object.entries(typeData.yields)) {
-                                income[resource] = (income[resource] || 0) + amount;
+            // Optimization: Use a flat list of planets if available, or optimize the nested loop
+            // Since we don't have a flat list, we iterate systems.
+            // However, we can skip systems that we know the player doesn't have presence in if we tracked that.
+            // For now, let's just use a standard for loop which is faster than forEach
+            const systems = this.engine.state.systems;
+            for (let i = 0; i < systems.length; i++) {
+                const system = systems[i];
+                // Only check planets if the system has them
+                if (system.planets) {
+                    for (let j = 0; j < system.planets.length; j++) {
+                        const planet = system.planets[j];
+                        if (planet.owner === player.id) {
+                            const typeData = PLANET_TYPES[planet.type];
+                            if (typeData && typeData.yields) {
+                                // Direct property access is faster than iterating object entries
+                                income.IO += (typeData.yields.IO || 0);
+                                income.minerals += (typeData.yields.minerals || 0);
+                                income.energy += (typeData.yields.energy || 0);
+                                income.scrap += (typeData.yields.scrap || 0);
                             }
                         }
                     }
-                });
-            });
+                }
+            }
 
             // Apply tech modifiers
             let energyModifier = 1.0;
@@ -123,6 +134,11 @@ export class EconomyService {
 
     runBuildQueues(dt) {
         const locations = [...this.engine.state.systems, ...this.engine.state.ships.filter(s => s.isStation)];
+        
+        // Optimization: Create a map for O(1) ship lookups to avoid O(N) find inside the loop
+        const shipMap = new Map();
+        this.engine.state.ships.forEach(s => shipMap.set(s.id, s));
+
         locations.forEach(location => {
             if (location.buildQueue && location.buildQueue.length > 0) {
                 const firstItem = location.buildQueue[0];
@@ -130,7 +146,7 @@ export class EconomyService {
 
                 // --- Handle Repair Jobs ---
                 if (firstItem.jobType === 'REPAIR') {
-                    const ship = this.engine.state.ships.find(s => s.id === firstItem.shipId);
+                    const ship = shipMap.get(firstItem.shipId);
                     
                     // If ship is gone, remove job
                     if (!ship) {
@@ -203,6 +219,8 @@ export class EconomyService {
                         }
                         const ship = this.engine.unitService.spawnShip(owner, firstItem.shipType, { x: location.x, y: location.y }, spawnSystem, { isBuilding: true, hull: 1 });
                         firstItem.shipId = ship.id;
+                        // Update cache for subsequent lookups in this frame if needed
+                        shipMap.set(ship.id, ship);
 
                         this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: owner.id, resources: owner.resources });
                         // Broadcast that the queue has changed (item started)
@@ -226,7 +244,7 @@ export class EconomyService {
                     firstItem.remainingTime -= (dt * speedMultiplier);
 
                     // Update visual progress of the building ship
-                    const ship = this.engine.state.ships.find(s => s.id === firstItem.shipId);
+                    const ship = shipMap.get(firstItem.shipId);
                     if (ship) {
                         const totalTime = shipData.buildTime;
                         const progress = Math.max(0, 1 - (firstItem.remainingTime / totalTime));

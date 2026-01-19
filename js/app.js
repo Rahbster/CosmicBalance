@@ -674,6 +674,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         });
                     }
+
+                    // Auto-Recycle Option (Find nearest debris in controlled space)
+                    menuItems.push({
+                        label: 'Auto-Recycle',
+                        action: () => {
+                            gameEngine.requestSalvageMission(entity.id, null);
+                            toastManager.show('Auto-Recycle mission initiated.', 'info');
+                        }
+                    });
                 }
 
                 // If the ship is a station, add a "Build" option

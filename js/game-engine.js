@@ -15,6 +15,7 @@ import { SelectionManager } from './services/SelectionManager.js';
 import { GameMessageHandler } from './services/GameMessageHandler.js';
 import { GameSetupService } from './services/GameSetupService.js';
 import { UnitService } from './services/UnitService.js';
+import { PerformanceMonitor } from './services/PerformanceMonitor.js';
 import { SHIP_STATE, LOG_CATEGORIES, LOG_LEVELS, DEFAULT_SHIP_DESIGNS } from './cb_constants.js';
 
 
@@ -86,6 +87,7 @@ export class GameEngine {
         this.messageHandler = new GameMessageHandler(this);
         this.gameSetupService = new GameSetupService(this);
         this.unitService = new UnitService(this);
+        this.performanceMonitor = new PerformanceMonitor();
         
         this.lastTime = 0;
         this.uiUpdateTimer = 0;
@@ -432,16 +434,26 @@ export class GameEngine {
         this.state.gameTime = (this.state.gameTime || 0) + simDt;
         
         if (this.isHost && !this.paused) {
+            this.performanceMonitor.start('HostLogic');
             this.runHostLogic(simDt);
+            this.performanceMonitor.end('HostLogic');
+            
+            this.performanceMonitor.start('AI');
             this.runAI(simDt);
+            this.performanceMonitor.end('AI');
         }
 
         if (!this.paused) {
+            this.performanceMonitor.start('Movement');
             this.update(simDt);
+            this.performanceMonitor.end('Movement');
         }
 
         this.camera.updateAnimation(timestamp);
+        
+        this.performanceMonitor.start('Render');
         this.draw();
+        this.performanceMonitor.end('Render');
 
         // Throttle UI updates to avoid constant re-rendering, but still update timers
         this.uiUpdateTimer += dt;
@@ -539,16 +551,25 @@ export class GameEngine {
     }
 
     runHostLogic(dt) {
+        this.performanceMonitor.start('Combat');
         this.combatService.runCombat(dt);
+        this.performanceMonitor.end('Combat');
+        
+        this.performanceMonitor.start('Capture');
         this.combatService.runCaptureLogic(dt);
+        this.performanceMonitor.end('Capture');
+        
         this.runVictoryCheck(dt);
         // These methods accumulate state changes without broadcasting every frame
+        this.performanceMonitor.start('Economy');
         this.economyService.runResourceGeneration(dt);
         this.economyService.runResearch(dt);
         this.economyService.runAutoRepair(dt); // Check for idle stations to assign repairs
         // These methods are event-driven and broadcast as needed
         this.economyService.runBuildQueues(dt);
         this.economyService.runRepairJobs(dt);
+        this.performanceMonitor.end('Economy');
+        
         this.combatService.runShieldRegen(dt);
         this.runHeatDecay(dt);
         // This method handles throttled broadcasts for economy state

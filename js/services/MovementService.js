@@ -169,14 +169,29 @@ export class MovementService {
                             // 2. Mission Complete. Stay here so AI can decide next move (e.g. daisy-chain exploration).
                             delete ship.scoutMission;
                             this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: ship.currentSystemId });
-                        } else if (ship.scoutMission && arrivedAtSystem.id === ship.scoutMission.from) {
-                            // Arrived back home from scout mission
-                            delete ship.scoutMission;
-                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, scoutMission: null, targetId: null, moveState: SHIP_STATE.IDLE });
-                        } else if (ship.salvageMission && arrivedAtSystem.id === ship.salvageMission.from) {
-                            // Arrived back home from salvage mission
-                            delete ship.salvageMission;
-                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, targetId: null, moveState: SHIP_STATE.IDLE });
+                        } else if (ship.salvageMission) {
+                            // --- Handle Salvage Mission Arrival at System ---
+                            if (arrivedAtSystem.id === ship.salvageMission.systemId) {
+                                // Arrived at the system containing debris. Move to debris.
+                                const targetDebris = this.engine.state.debrisFields.find(d => d.id === ship.salvageMission.targetDebrisId);
+                                if (targetDebris) {
+                                    ship.arrivalPoint = { x: targetDebris.x, y: targetDebris.y };
+                                    ship.moveState = SHIP_STATE.MOVING;
+                                    this.engine.broadcast({ type: 'GAME_MOVE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.MOVING, arrivalPoint: ship.arrivalPoint });
+                                    return;
+                                } else {
+                                    // Target debris gone, look for another in this system
+                                    const nextDebris = this._findNearestDebrisInSystem(ship, arrivedAtSystem);
+                                    if (nextDebris) {
+                                        ship.salvageMission.targetDebrisId = nextDebris.id;
+                                        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
+                                        ship.arrivalPoint = { x: nextDebris.x, y: nextDebris.y };
+                                        ship.moveState = SHIP_STATE.MOVING;
+                                        this.engine.broadcast({ type: 'GAME_MOVE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.MOVING, arrivalPoint: ship.arrivalPoint });
+                                        return;
+                                    }
+                                }
+                            }
                         } else {
                             // --- Handle Standard Arrival ---
                                 this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: ship.moveState, currentSystemId: ship.currentSystemId });
@@ -260,7 +275,7 @@ export class MovementService {
 
         } else if (this.engine.isHost && ship.salvageMission) {
             // Ship is on a salvage mission and is idle. It's at the debris field.
-            const targetDebris = this.engine.state.debrisFields.find(d => d.id === ship.salvageMission.to);
+            const targetDebris = this.engine.state.debrisFields.find(d => d.id === ship.salvageMission.targetDebrisId);
             if (!targetDebris) {
                 // Debris is gone (collected).
                 
@@ -268,43 +283,28 @@ export class MovementService {
                 const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
                 let nextTarget = null;
 
-                if (currentSystem && currentSystem.owner === ship.owner) {
-                    // Find other debris in this system
-                    const debrisInSystem = this.engine.state.debrisFields.filter(d => {
-                        const dx = d.x - currentSystem.x;
-                        const dy = d.y - currentSystem.y;
-                        const r = this.engine.spatialService.getSystemEffectiveRadius(currentSystem);
-                        return (dx * dx + dy * dy) <= (r * r);
-                    });
+                // 1. Priority: Finish debris in the current system (regardless of ownership)
+                if (currentSystem) {
+                    nextTarget = this._findNearestDebrisInSystem(ship, currentSystem);
+                }
 
-                    if (debrisInSystem.length > 0) {
-                        // Find closest debris
-                        let minDist = Infinity;
-                        debrisInSystem.forEach(d => {
-                            const dist = (d.x - ship.x) ** 2 + (d.y - ship.y) ** 2;
-                            if (dist < minDist) {
-                                minDist = dist;
-                                nextTarget = d;
-                            }
-                        });
-                    }
+                // 2. Priority: Move to nearest debris in a controlled system
+                if (!nextTarget) {
+                    nextTarget = this._findNearestControlledDebris(ship, ship.owner);
                 }
 
                 if (nextTarget) {
-                    // Proceed to next debris at sublight speed
-                    ship.salvageMission.to = nextTarget.id;
-                    this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
-                    
-                    ship.arrivalPoint = { x: nextTarget.x, y: nextTarget.y };
-                    ship.moveState = SHIP_STATE.MOVING;
-                    ship.targetId = null;
-                    
-                    this.engine.broadcast({ type: 'GAME_MOVE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.MOVING, arrivalPoint: ship.arrivalPoint });
-                    this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Salvager ${ship.id} moving to next debris ${nextTarget.id} in system ${currentSystem.name}`);
+                    // Use the handler to set up the move (handles warp vs sublight logic)
+                    this.handleSalvageMissionRequest({ 
+                        senderId: ship.owner, 
+                        shipId: ship.id, 
+                        targetDebrisId: nextTarget.id 
+                    });
                 } else {
                     // Done or not in controlled system. Stop and wait.
                     delete ship.salvageMission;
                     this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: null, moveState: SHIP_STATE.IDLE });
+                    this.engine.broadcast({ type: 'GAME_TOAST', playerId: ship.owner, message: 'Salvage operations complete.', toastType: 'success' });
                 }
             }
         } else if (this.engine.isHost && ship.patrolSystemId) {
@@ -757,25 +757,71 @@ export class MovementService {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
         if (!ship || ship.owner !== senderId || ship.type !== 'Salvager') return;
 
-        const targetDebris = this.engine.state.debrisFields.find(d => d.id === targetDebrisId);
-        if (!targetDebris) return;
+        let targetDebris = null;
+
+        if (targetDebrisId) {
+            targetDebris = this.engine.state.debrisFields.find(d => d.id === targetDebrisId);
+        } else {
+            // Find nearest debris in a controlled system
+            targetDebris = this._findNearestControlledDebris(ship, senderId);
+        }
+
+        if (!targetDebris) {
+             this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'No debris found in controlled systems.', toastType: 'warning' });
+             return;
+        }
 
         const currentSystem = this.engine.spatialService.getCurrentSystem(ship);
         const debrisSystem = this.engine.spatialService.getClosestSystem(targetDebris);
 
+        // Set mission details
+        ship.salvageMission = { targetDebrisId: targetDebris.id, systemId: debrisSystem ? debrisSystem.id : null };
+        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
+
         // If debris is in a different system, move to that system first
         if (currentSystem && debrisSystem && currentSystem.id !== debrisSystem.id) {
-            // This will use standard navigation logic (warp lanes) to get to the system
-            this.moveShip(shipId, debrisSystem.id);
-            return;
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Salvager ${ship.id} moving to system ${debrisSystem.name} for debris.`);
+            this._moveShipWithPathfinding(ship, debrisSystem.id);
+        } else {
+            // In system, move to debris
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Salvager ${ship.id} moving to debris ${targetDebris.id} in current system.`);
+            ship.arrivalPoint = { x: targetDebris.x, y: targetDebris.y };
+            ship.moveState = SHIP_STATE.MOVING;
+            ship.targetId = null;
+            this.engine.broadcast({ type: 'GAME_MOVE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.MOVING, arrivalPoint: ship.arrivalPoint });
         }
+    }
 
-        // If in same system (or deep space), move directly to debris
-        if (currentSystem) {
-            ship.salvageMission = { from: currentSystem.id, to: targetDebrisId };
-            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, salvageMission: ship.salvageMission });
-        }
-        this.moveShip(shipId, targetDebrisId);
+    _findNearestControlledDebris(ship, playerId) {
+        let nearest = null;
+        let minDist = Infinity;
+
+        this.engine.state.debrisFields.forEach(debris => {
+            const system = this.engine.spatialService.getClosestSystem(debris);
+            if (system && system.owner === playerId) {
+                const dist = (debris.x - ship.x)**2 + (debris.y - ship.y)**2;
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = debris;
+                }
+            }
+        });
+        return nearest;
+    }
+
+    _findNearestDebrisInSystem(ship, system) {
+        // Use getClosestSystem to ensure we catch debris on the periphery that might be outside strict radius
+        const debrisInSystem = this.engine.state.debrisFields.filter(d => {
+            const closest = this.engine.spatialService.getClosestSystem(d);
+            return closest && closest.id === system.id;
+        });
+
+        if (debrisInSystem.length === 0) return null;
+        return debrisInSystem.reduce((prev, curr) => {
+            const prevDist = (prev.x - ship.x)**2 + (prev.y - ship.y)**2;
+            const currDist = (curr.x - ship.x)**2 + (curr.y - ship.y)**2;
+            return currDist < prevDist ? curr : prev;
+        });
     }
 
     requestStopPatrol(shipId) {

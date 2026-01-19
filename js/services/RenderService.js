@@ -94,15 +94,21 @@ export class RenderService {
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
         const viewingIds = this.gameEngine.getViewingPlayerIds();
         
+        // Cache visibility results for this frame to avoid O(N*M) lookups
+        const visibilityCache = new Map();
+
         // Helper to check visibility based on viewing mode (Player ID or Faction Name)
         const checkVisibility = (system) => {
             if (isHostGodView) return 'explored';
+            if (visibilityCache.has(system.id)) return visibilityCache.get(system.id);
+
             let result = 'unexplored';
             for (const id of viewingIds) {
                 const v = system.visibility[id];
                 if (v === 'explored') return 'explored';
                 if (v === 'scouted') result = 'scouted';
             }
+            visibilityCache.set(system.id, result);
             return result;
         };
 
@@ -248,12 +254,23 @@ export class RenderService {
         // 2. Cut out holes for vision using destination-out
         ctx.globalCompositeOperation = 'destination-out';
 
+        // Optimization: Only cut holes for entities within the viewport (plus buffer)
+        // This prevents drawing thousands of fog clearings for off-screen entities
+        const buffer = 500;
+        const viewX = -this.gameEngine.camera.pan.x / this.gameEngine.camera.zoom;
+        const viewY = -this.gameEngine.camera.pan.y / this.gameEngine.camera.zoom;
+        const viewW = this.canvas.width / this.gameEngine.camera.zoom;
+        const viewH = this.canvas.height / this.gameEngine.camera.zoom;
+
         const cutHole = (x, y, radius) => {
+            if (x + radius < viewX - buffer || x - radius > viewX + viewW + buffer ||
+                y + radius < viewY - buffer || y - radius > viewY + viewH + buffer) return;
             ctx.drawImage(this.fogBrush, x - radius, y - radius, radius * 2, radius * 2);
         };
 
         // Vision from Owned Ships
-        const myShips = state.ships.filter(s => viewingIds.includes(s.owner));
+        // Optimization: Filter ships first to avoid iterating all ships if not needed
+        const myShips = state.ships.filter(s => viewingIds.includes(s.owner) && s.hull > 0);
 
         myShips.forEach(ship => {
             // Scouts have larger sensor range
