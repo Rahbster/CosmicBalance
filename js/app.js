@@ -7,7 +7,6 @@ import { ChatManager } from './ChatManager.js';
 import { GameEngine } from './game-engine.js';
 import { TechTreeModal } from './modals/TechTreeModal.js';
 import { FleetManagerModal } from './modals/FleetManagerModal.js';
-import { RadialMenu } from './ui/RadialMenu.js';
 import { LoggingModal } from './modals/LoggingModal.js';
 import { LoggingService } from './services/LoggingService.js';
 import { LOG_CATEGORIES, LOG_LEVELS } from './cb_constants.js';
@@ -69,7 +68,6 @@ let fleetManagerModal = null;
 let loggingModal = null;
 let gameStatusModal = null;
 let shipDesignerModal = null;
-const radialMenu = new RadialMenu();
 
 let colorPicker = null;
 
@@ -274,33 +272,117 @@ function updateHostViewControls() {
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
     
+    // Sidenav Logic - Moved to top to ensure 'overlay' is initialized for Context Slider
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const closeSidenavBtn = document.getElementById('close-sidenav-btn');
+    const sidenav = document.getElementById('sidenav');
+    const overlay = document.getElementById('overlay');
+
+    const openNav = () => { if(sidenav) sidenav.style.width = "280px"; if(overlay) overlay.style.display = "block"; };
+    const closeNav = () => { if(sidenav) sidenav.style.width = "0"; if(overlay) overlay.style.display = "none"; };
+
+    if (hamburgerBtn) hamburgerBtn.addEventListener('click', openNav);
+    if (closeSidenavBtn) closeSidenavBtn.addEventListener('click', closeNav);
+    if (overlay) overlay.addEventListener('click', closeNav);
+
     // Inject dynamic styles for UI behavior
     const uiStyle = document.createElement('style');
     uiStyle.textContent = `
         body.fullscreen-mode #ship-designer-btn-main,
         body.fullscreen-mode #btn-open-ship-designer { display: none !important; }
         body.fullscreen-mode #about-btn-main { display: none !important; }
+        
+        /* Context Slider (Right Sidenav) */
+        #context-sidenav {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            z-index: 1001;
+            top: 0;
+            right: 0;
+            background-color: rgba(10, 20, 30, 0.95);
+            backdrop-filter: blur(10px);
+            overflow-x: hidden;
+            transition: 0.3s;
+            padding-top: 60px;
+            border-left: 1px solid rgba(0, 242, 255, 0.3);
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+        }
+        #context-sidenav button {
+            padding: 12px 20px;
+            text-decoration: none;
+            font-size: 16px;
+            color: #aee1f9;
+            display: block;
+            transition: 0.2s;
+            background: none;
+            border: none;
+            text-align: left;
+            width: 100%;
+            cursor: pointer;
+            font-family: "Orbitron", sans-serif;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        #context-sidenav button:hover {
+            color: #fff;
+            background: rgba(0, 242, 255, 0.1);
+            padding-left: 25px;
+        }
+        #context-sidenav .closebtn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 30px;
+            width: auto;
+            padding: 0;
+            border: none;
+            color: #aee1f9;
+            background: none;
+            cursor: pointer;
+        }
+        #context-sidenav-title {
+            color: #00f2ff;
+            padding: 0 20px 20px 20px;
+            font-size: 1.2rem;
+            border-bottom: 1px solid rgba(0, 242, 255, 0.3);
+            margin: 0 0 10px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
     `;
     document.head.appendChild(uiStyle);
+
+    // Create Context Slider DOM
+    const contextSidenav = document.createElement('div');
+    contextSidenav.id = 'context-sidenav';
+    contextSidenav.innerHTML = `
+        <button class="closebtn" id="close-context-sidenav">&times;</button>
+        <h3 id="context-sidenav-title">Actions</h3>
+        <div id="context-sidenav-content"></div>
+    `;
+    document.body.appendChild(contextSidenav);
+
+    const closeContextNav = () => { 
+        contextSidenav.style.width = "0"; 
+        // Only hide overlay if the left sidenav is also closed
+        if (overlay && (!sidenav || sidenav.style.width === "0" || sidenav.style.width === "")) {
+            overlay.style.display = "none";
+        }
+    };
+    
+    document.getElementById('close-context-sidenav').addEventListener('click', closeContextNav);
+    
+    if (overlay) {
+        overlay.addEventListener('click', closeContextNav);
+    }
 
     // Initialize ChatManager here to ensure DOM is ready
     chatManager = new ChatManager({
         send: (data) => peerManager.send(data)
     }, () => profileService.getIdentity(), () => profileService.getTeam(), loggingService);
     
-    // Sidenav Logic
-    const hamburgerBtn = document.getElementById('hamburger-btn');
-    const closeSidenavBtn = document.getElementById('close-sidenav-btn');
-    const sidenav = document.getElementById('sidenav');
-    const overlay = document.getElementById('overlay');
-
-    const openNav = () => { sidenav.style.width = "280px"; overlay.style.display = "block"; };
-    const closeNav = () => { sidenav.style.width = "0"; overlay.style.display = "none"; };
-
-    if (hamburgerBtn) hamburgerBtn.addEventListener('click', openNav);
-    if (closeSidenavBtn) closeSidenavBtn.addEventListener('click', closeNav);
-    if (overlay) overlay.addEventListener('click', closeNav);
-
     // PWA Install Button
     const installBtn = document.getElementById('btn-install-pwa');
     if (installBtn) {
@@ -684,16 +766,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // Calculate custom radius for the menu
-            let menuRadius = null;
-            if (isSystem) { // It's a system
-                 const effectiveRadius = gameEngine.spatialService.getSystemEffectiveRadius(entity);
-                 // Convert to screen pixels and add padding
-                 const screenRadius = effectiveRadius * gameEngine.camera.zoom;
-                 menuRadius = Math.max(75, screenRadius + 40); 
-            }
+            // Populate and show Context Slider instead of Radial Menu
+            const contentDiv = document.getElementById('context-sidenav-content');
+            contentDiv.innerHTML = '';
+            
+            const titleEl = document.getElementById('context-sidenav-title');
+            titleEl.textContent = entity.name || entity.type || 'Actions';
 
-            radialMenu.show(menuItems, x, y, menuRadius);
+            menuItems.forEach(item => {
+                const btn = document.createElement('button');
+                btn.textContent = item.label;
+                btn.onclick = () => {
+                    item.action();
+                    closeContextNav();
+                };
+                contentDiv.appendChild(btn);
+            });
+
+            contextSidenav.style.width = "280px";
+            if (overlay) overlay.style.display = "block";
         });
 
         // Listener for bottom panel actions
