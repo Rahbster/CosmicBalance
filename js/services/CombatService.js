@@ -9,6 +9,36 @@ export class CombatService {
         const shipsByPlanet = new Map();
         const systemMap = this.engine.spatialService.getSystemMap();
 
+        // Mine Logic
+        if (this.engine.state.mines && this.engine.state.mines.length > 0) {
+            const minesToRemove = [];
+            this.engine.state.mines.forEach(mine => {
+                this.engine.state.ships.forEach(ship => {
+                    if (ship.owner !== mine.owner && ship.hull > 0) {
+                        const dx = ship.x - mine.x;
+                        const dy = ship.y - mine.y;
+                        if ((dx*dx + dy*dy) < (mine.radius * mine.radius)) {
+                            this._applyDamage(ship, mine.damage);
+                            minesToRemove.push(mine.id);
+                            const debris = {
+                                id: `debris-${crypto.randomUUID()}`,
+                                x: mine.x,
+                                y: mine.y,
+                                resources: { scrap: 10 }
+                            };
+                            this.engine.state.debrisFields.push(debris);
+                            this.engine.broadcast({ type: 'GAME_DEBRIS_CREATED', debris });
+                        }
+                    }
+                });
+            });
+
+            if (minesToRemove.length > 0) {
+                this.engine.state.mines = this.engine.state.mines.filter(m => !minesToRemove.includes(m.id));
+                this.engine.broadcast({ type: 'GAME_MINES_REMOVED', mineIds: minesToRemove });
+            }
+        }
+
         // Optimization: Iterate ships once instead of (Systems * Ships)
         // Use cached currentSystemId to quickly bucket ships
         this.engine.state.ships.forEach(ship => {
@@ -30,6 +60,16 @@ export class CombatService {
 
         // Process combat for each planet
         for (const [planetId, ships] of shipsByPlanet.entries()) {
+            // planetId here corresponds to systemId in the map
+            const system = systemMap.get(planetId);
+            if (system && system.planets) {
+                system.planets.forEach(planet => {
+                    if (planet.owner && planet.citadelLevel > 0) {
+                        this._processCitadelCombat(planet, ships, dt);
+                    }
+                });
+            }
+
             const teamsPresent = [...new Set(ships.map(s => s.team))];
             if (teamsPresent.length > 1) { // If contested
                 ships.forEach(attacker => {
@@ -42,6 +82,13 @@ export class CombatService {
                         
                         if (enemyShips.length > 0) {
                             const target = enemyShips[Math.floor(Math.random() * enemyShips.length)];
+                            
+                            // Decloak on fire
+                            if (attacker.isCloaked) {
+                                attacker.isCloaked = false;
+                                this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: attacker.id, isCloaked: false });
+                            }
+
                             const damagePerFrame = attacker.damage * (dt / 1000);
 
                             if (target.shield > 0) {
@@ -99,6 +146,46 @@ export class CombatService {
                 this.engine._renderSelectedUI(); // Immediately hide the panel
             }
             this.engine.broadcast({ type: 'GAME_SHIPS_DESTROYED', shipIds: destroyedIds });
+        }
+    }
+
+    _processCitadelCombat(planet, shipsInSystem, dt) {
+        const planetOwner = this.engine.state.players.find(p => p.id === planet.owner);
+        if (!planetOwner) return;
+
+        // Find valid enemies in the system
+        const enemies = shipsInSystem.filter(s => {
+            if (s.owner === planet.owner) return false;
+            const shipOwner = this.engine.state.players.find(p => p.id === s.owner);
+            return shipOwner && shipOwner.team !== planetOwner.team && s.hull > 0;
+        });
+
+        if (enemies.length === 0) return;
+
+        // Level 2: Combat Control (Automated Fighter Defense)
+        if (planet.citadelLevel >= 2) {
+            const fighterDPS = 15; 
+            const damage = fighterDPS * (dt / 1000);
+            // Attack a random enemy
+            const target = enemies[Math.floor(Math.random() * enemies.length)];
+            this._applyDamage(target, damage);
+        }
+
+        // Level 3: Quasar Cannon
+        if (planet.citadelLevel >= 3) {
+            if (!planet.quasarCooldown) planet.quasarCooldown = 0;
+            planet.quasarCooldown -= dt;
+
+            if (planet.quasarCooldown <= 0) {
+                // Target the strongest enemy
+                const target = enemies.reduce((prev, curr) => 
+                    (prev.hull + prev.shield > curr.hull + curr.shield) ? prev : curr
+                );
+                const damage = 150; // Heavy damage
+                
+                this._applyDamage(target, damage);
+                planet.quasarCooldown = 5000; // 5 seconds cooldown
+            }
         }
     }
 
@@ -210,6 +297,7 @@ export class CombatService {
 
             const orbitingTransports = systemShips.filter(ship => {
                 if (ship.type !== 'TroopTransport') return false;
+                if (ship.isBuilding) return false;
                 const dx = system.x - ship.x;
                 const dy = system.y - ship.y;
                 return (dx*dx + dy*dy) <= effectiveRadiusSq;
@@ -273,6 +361,12 @@ export class CombatService {
                     const captureAmount = (CAPTURE_POINTS_PER_SECOND / 1000) * dt * orbitingTransports.length;
 
                     if (isEnemy) {
+                        // Level 5: Planetary Shields prevent capture until shields are down
+                        if (activeTarget.citadelLevel >= 5 && activeTarget.shield > 0) {
+                            // Shields active, capture blocked
+                            return;
+                        }
+
                         // Neutralize: Reduce progress
                         activeTarget.captureProgress -= captureAmount;
                         if (activeTarget.captureProgress <= 0) {
@@ -438,6 +532,25 @@ export class CombatService {
                 if (!isContested) ship.shield = Math.min(ship.maxShield, ship.shield + SHIELD_REGEN_RATE * (dt / 1000));
             }
         });
+
+        // Planetary Shield Regen (Citadel Lvl 5)
+        this.engine.state.systems.forEach(system => {
+            system.planets.forEach(planet => {
+                if (planet.citadelLevel >= 5 && planet.maxShield > 0) {
+                    if (planet.shield < planet.maxShield) {
+                        planet.shield = Math.min(planet.maxShield, planet.shield + SHIELD_REGEN_RATE * (dt / 1000));
+                    }
+                }
+            });
+        });
+    }
+
+    _applyDamage(target, damage) {
+        if (target.shield > 0) {
+            target.shield = Math.max(0, target.shield - damage);
+        } else {
+            target.hull = Math.max(0, target.hull - damage);
+        }
     }
 
     requestSelfDestruct(shipId) {

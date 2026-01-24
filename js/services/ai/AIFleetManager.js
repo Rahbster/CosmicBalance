@@ -28,6 +28,9 @@ export class AIFleetManager {
 
         // 5. Fleet Movement / Attacks
         this._commandFleets(aiPlayer);
+
+        // 6. Tactical Abilities (Mines, Cloak)
+        this._manageTacticalAbilities(aiPlayer);
     }
 
     _commandSalvager(aiPlayer, salvager) {
@@ -843,5 +846,51 @@ export class AIFleetManager {
             s.damage > 0 && 
             this.engine.spatialService.isShipInSystem(s, system)
         );
+    }
+
+    _manageTacticalAbilities(aiPlayer) {
+        const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
+        
+        myShips.forEach(ship => {
+            // --- Cloaking Logic ---
+            // Scouts and Cruisers cloak when in hostile territory
+            if (ship.type === 'Scout' || ship.type === 'Cruiser') {
+                const system = this.engine.spatialService.getCurrentSystem(ship);
+                if (system) {
+                    const isEnemy = system.owner && system.owner !== aiPlayer.id;
+                    if (isEnemy && !ship.isCloaked) {
+                         this.engine.economyService.handleToggleCloakRequest({ senderId: aiPlayer.id, shipId: ship.id });
+                    } else if (!isEnemy && ship.isCloaked) {
+                         // Decloak in friendly territory to save "energy" (roleplay/future mechanic)
+                         this.engine.economyService.handleToggleCloakRequest({ senderId: aiPlayer.id, shipId: ship.id });
+                    }
+                }
+            }
+
+            // --- Mine Deployment Logic ---
+            // Destroyers and Cruisers deploy mines in border systems
+            if (ship.type === 'Destroyer' || ship.type === 'Cruiser') {
+                const system = this.engine.spatialService.getCurrentSystem(ship);
+                if (system && system.owner === aiPlayer.id) {
+                    // Check if border system (connected to non-owned system)
+                    const isBorder = system.links.some(l => {
+                        const n = this.engine.state.systems.find(s => s.id === l.targetId);
+                        return n && n.owner !== aiPlayer.id;
+                    });
+
+                    if (isBorder && aiPlayer.resources.scrap >= 50 && aiPlayer.resources.energy >= 20) {
+                        const minesInSystem = this.engine.state.mines ? this.engine.state.mines.filter(m => {
+                            const d = (m.x - system.x)**2 + (m.y - system.y)**2;
+                            return d < 200*200; // Rough system check
+                        }).length : 0;
+
+                        // Maintain a small minefield (max 3 per system)
+                        if (minesInSystem < 3 && Math.random() < 0.01) {
+                             this.engine.economyService.handleDeployMineRequest({ senderId: aiPlayer.id, shipId: ship.id });
+                        }
+                    }
+                }
+            }
+        });
     }
 }

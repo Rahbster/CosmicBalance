@@ -12,17 +12,17 @@ export function startCombat(attackingFleet, defendingFleet) {
     gameState.combat.defendingFleetId = defendingFleet.id;
     gameState.combat.ships = [];
 
-    const playerXBase = 200;
-    const playerYBase = 500;
-    const enemyXBase = 800;
-    const enemyYBase = 500;
+    const playerXBase = MAP_WIDTH * 0.2;
+    const playerYBase = MAP_HEIGHT * 0.5;
+    const enemyXBase = MAP_WIDTH * 0.8;
+    const enemyYBase = MAP_HEIGHT * 0.5;
     const positionVariance = 50;
     const playerHeading = Math.random() * 45;
     const enemyHeading = 180 - (Math.random() * 45);
 
     // --- Add Attacking Fleet Ships ---
     attackingFleet.ships.forEach((shipInfo, index) => {
-        const design = findDesignById(shipInfo.designId);
+        const design = findDesignById(shipInfo.designId, gameState.shipDesigns);
         if (design) {
             const shipStats = calculateShipStatsFromDesign(design);
             gameState.combat.ships.push({
@@ -40,7 +40,7 @@ export function startCombat(attackingFleet, defendingFleet) {
     // --- Add Defending Fleet Ships ---
     const difficulty = dom.difficultySelector.value;
     defendingFleet.ships.forEach((shipInfo, index) => {
-        const design = findDesignById(shipInfo.designId);
+        const design = findDesignById(shipInfo.designId, gameState.shipDesigns);
         if (design) {
             const shipStats = calculateShipStatsFromDesign(design, difficulty);
             gameState.combat.ships.push({
@@ -77,12 +77,12 @@ export function startCombat(attackingFleet, defendingFleet) {
     const aboutBtn = document.getElementById('about-btn-main');
     if (aboutBtn) aboutBtn.classList.add('hidden');
 
-    renderCombatMap();
-    renderCombatInfoPanel();
+    renderCombatMap(gameState.combat);
+    renderCombatInfoPanel(gameState.combat);
 }
 
-function findDesignById(designId) {
-    const allDesigns = [...DEFAULT_SHIP_DESIGNS, ...appState.soloGameState.shipDesigns];
+function findDesignById(designId, shipDesigns) {
+    const allDesigns = [...DEFAULT_SHIP_DESIGNS, ...(shipDesigns || [])];
     return allDesigns.find(d => d.id === designId);
 }
 
@@ -192,7 +192,7 @@ export function endCombat() {
 
 function runGameLoop() {
     executeTurn();
-    requestAnimationFrame(renderCombatMap);
+    requestAnimationFrame(() => renderCombatMap(appState.soloGameState.combat));
 }
 
 function createShieldOctagon(shields) {
@@ -217,14 +217,14 @@ function createShieldOctagon(shields) {
     return svg;
 }
 
-function renderCombatMap() {
+function renderCombatMap(combatState) {
     const combatMap = document.getElementById('combat-map-view');
     const scaleBar = document.getElementById('combat-scale-bar');
     combatMap.innerHTML = '';
 
-    const ships = appState.soloGameState.combat.ships.filter(s => !s.destroyed);
-    const projectiles = appState.soloGameState.combat.projectiles;
-    const effects = appState.soloGameState.combat.effects;
+    const ships = combatState.ships.filter(s => !s.destroyed);
+    const projectiles = combatState.projectiles;
+    const effects = combatState.effects;
     if (ships.length === 0) return;
 
     // --- Auto-Zoom Logic ---
@@ -307,8 +307,8 @@ function renderCombatMap() {
             });
         }
         shipDiv.addEventListener('click', () => {
-            appState.soloGameState.combat.selectedShipId = ship.id;
-            renderCombatInfoPanel();
+            combatState.selectedShipId = ship.id;
+            renderCombatInfoPanel(combatState);
         });
 
         const isMyShip = (appState.isInitiator && ship.owner === 'player1') || (!appState.isInitiator && ship.owner === 'player2');
@@ -319,9 +319,9 @@ function renderCombatMap() {
 
         if (!ship.isPlayer) {
             shipDiv.addEventListener('dblclick', () => {
-                const selectedPlayerShip = appState.soloGameState.combat.ships.find(s => s.id === appState.soloGameState.combat.selectedShipId && s.isPlayer);
+                const selectedPlayerShip = combatState.ships.find(s => s.id === combatState.selectedShipId && s.isPlayer);
                 if (selectedPlayerShip) {
-                    setTargetForAllWeapons(selectedPlayerShip, ship.id);
+                    setTargetForAllWeapons(selectedPlayerShip, ship.id, combatState);
                 }
             });
         }
@@ -375,7 +375,7 @@ function renderCombatMap() {
         }
     });
 
-    appState.soloGameState.combat.effects = [];
+    combatState.effects = [];
 
     // --- Render Scale Bar ---
     scaleBar.innerHTML = '';
@@ -519,10 +519,9 @@ function injectCombatStyles() {
     document.head.appendChild(style);
 }
 
-function renderCombatInfoPanel() {
+function renderCombatInfoPanel(combatState) {
     const infoPanelContent = document.getElementById('info-panel-content');
-    const gameState = appState.soloGameState;
-    const selectedShip = gameState.combat.ships.find(s => s.id === gameState.combat.selectedShipId);
+    const selectedShip = combatState.ships.find(s => s.id === combatState.selectedShipId);
 
     if (!selectedShip) {
         infoPanelContent.innerHTML = '<h3>No Ship Selected</h3>';
@@ -540,7 +539,7 @@ function renderCombatInfoPanel() {
     infoPanelContent.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h3>Tactical HUD</h3>
-            <span style="font-size:0.8em; color:var(--glass-accent);">TURN ${gameState.combat.turn}</span>
+            <span style="font-size:0.8em; color:var(--glass-accent);">TURN ${combatState.turn}</span>
         </div>
         
         <div class="ai-assist-toggle" style="${!isMyShip ? 'display:none;' : ''}; margin-bottom: 10px;">
@@ -587,7 +586,7 @@ function renderCombatInfoPanel() {
                 </div>
                 <select id="weapon-target-${i}" class="combat-select">
                     <option value="">-- Select Target --</option>
-                    ${gameState.combat.ships.filter(t => t.owner !== selectedShip.owner && !t.destroyed).map(t => `<option value="${t.id}" ${w.targetId === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
+                    ${combatState.ships.filter(t => t.owner !== selectedShip.owner && !t.destroyed).map(t => `<option value="${t.id}" ${w.targetId === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}
                 </select>
             </div>
         `).join('')}
@@ -608,7 +607,7 @@ function renderCombatInfoPanel() {
         aiAssistCheckbox.onchange = (e) => {
             selectedShip.aiAssisted = e.target.checked;
             showToast(`AI Assistant for ${selectedShip.name} is now ${e.target.checked ? 'ON' : 'OFF'}.`, 'info');
-            if (e.target.checked) aiGenerateOrders(); // Immediately generate orders if enabled
+            if (e.target.checked) aiGenerateOrders(combatState); // Immediately generate orders if enabled
         };
     }
 
@@ -639,9 +638,8 @@ function renderCombatInfoPanel() {
     }
 }
 
-function gatherHostOrders() {
-    const combatState = appState.soloGameState.combat;
-    const hostShips = combatState.ships.filter(s => s.owner === 'player1');
+function gatherHostOrders(combatState) {
+    const hostShips = combatState.ships.filter(s => s.owner === 'player1' && !s.destroyed);
 
     hostShips.forEach(ship => {
         if (ship.id === combatState.selectedShipId) {
@@ -662,9 +660,9 @@ function executeTurn() {
     const combatState = appState.soloGameState.combat;
 
     if (appState.isInitiator) {
-        gatherHostOrders();
+        gatherHostOrders(combatState);
         if (dataChannels.length === 0) {
-            aiGenerateOrders();
+            aiGenerateOrders(combatState);
         }
     }
     
@@ -672,80 +670,14 @@ function executeTurn() {
         // --- Power Regeneration Phase ---
         ship.power = Math.min(ship.maxPower, ship.power + ship.maxPower); // Regenerate power from all engines
 
-        const headingDiff = (ship.orders.targetHeading - ship.heading + 360) % 360;
-        const turnRate = ship.acceleration * 10;
-        if (headingDiff !== 0) {
-            const turnDirection = (headingDiff > 180) ? -1 : 1;
-            const turnAmount = Math.min(turnRate, Math.abs(headingDiff <= 180 ? headingDiff : 360 - headingDiff));
-            ship.heading = (ship.heading + turnAmount * turnDirection + 360) % 360;
-        }
+        updateShipMovement(ship);
 
-        const speedDiff = ship.orders.targetSpeed - ship.speed;
-        if (speedDiff !== 0) {
-            const accelAmount = Math.min(ship.acceleration, Math.abs(speedDiff));
-            ship.speed += Math.sign(speedDiff) * accelAmount;
-            // Enforce the ship's maximum speed
-            ship.speed = Math.max(0, Math.min(ship.speed, ship.maxSpeed));
-        }
-
-        const radians = (ship.heading - 90) * (Math.PI / 180);
-        ship.x += ship.speed * Math.cos(radians) * 0.1;
-        ship.y += ship.speed * Math.sin(radians) * 0.1;
-
-        ship.x = Math.max(0, Math.min(MAP_WIDTH, ship.x));
-        ship.y = Math.max(0, Math.min(MAP_HEIGHT, ship.y));
-
-        ship.weapons.forEach(weapon => {
-            if (weapon.cooldownRemaining > 0) weapon.cooldownRemaining--;
-
-            if (weapon.targetId && weapon.cooldownRemaining === 0 && ship.power >= weapon.powerCost) {
-                const target = combatState.ships.find(s => s.id === weapon.targetId);
-                if (target) {
-                    const distance = Math.sqrt(Math.pow(target.x - ship.x, 2) + Math.pow(target.y - ship.y, 2));
-                    if (distance <= weapon.range) {
-                        weapon.cooldownRemaining = weapon.cooldown;
-                        ship.power -= weapon.powerCost;
-                        if (weapon.type === 'beam') {
-                            combatState.effects.push({ type: 'beam', sourceId: ship.id, targetId: target.id, weapon: weapon });
-                            applyDamage(ship, target, weapon);
-                        } else if (weapon.type === 'projectile') {
-                            combatState.projectiles.push({
-                                id: `proj-${combatState.nextProjectileId++}`, ownerId: ship.id, targetId: target.id,
-                                x: ship.x, y: ship.y, heading: ship.heading, speed: weapon.speed,
-                                damage: weapon.damage, weapon: weapon,
-                            });
-                            showToast(`${ship.name} launches a missile at ${target.name}!`, 'info');
-                        }
-                    }
-                }
-            } else if (weapon.targetId && ship.power < weapon.powerCost) {
-                if (ship.isPlayer) showToast(`${ship.name}: Insufficient power to fire ${weapon.name}!`, 'error');
-            }
-        });
+        updateShipWeapons(ship, combatState);
     });
 
     combatState.turn++;
 
-    const newProjectiles = [];
-    combatState.projectiles.forEach(proj => {
-        const target = combatState.ships.find(s => s.id === proj.targetId);
-        if (!target || target.destroyed) return;
-
-        const dx = target.x - proj.x;
-        const dy = target.y - proj.y;
-        const distanceToTarget = Math.sqrt(dx * dx + dy * dy);
-        proj.heading = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
-
-        if (distanceToTarget <= proj.speed) {
-            applyDamage(combatState.ships.find(s => s.id === proj.ownerId), target, proj.weapon);
-        } else {
-            const radians = (proj.heading - 90) * (Math.PI / 180);
-            proj.x += proj.speed * Math.cos(radians);
-            proj.y += proj.speed * Math.sin(radians);
-            newProjectiles.push(proj);
-        }
-    });
-    combatState.projectiles = newProjectiles;
+    updateProjectiles(combatState);
 
     const remainingPlayerShips = combatState.ships.filter(s => s.isPlayer && !s.destroyed).length;
     const remainingEnemyShips = combatState.ships.filter(s => !s.isPlayer && !s.destroyed).length;
@@ -758,15 +690,95 @@ function executeTurn() {
         dataChannels.forEach(channel => channel.send(JSON.stringify(turnUpdate)));
     }
 
-    renderCombatInfoPanel();
+    renderCombatInfoPanel(combatState);
 }
 
-function applyDamage(attacker, target, weapon) {
+function updateShipMovement(ship) {
+    const headingDiff = (ship.orders.targetHeading - ship.heading + 360) % 360;
+    const turnRate = ship.acceleration * 10;
+    if (headingDiff !== 0) {
+        const turnDirection = (headingDiff > 180) ? -1 : 1;
+        const turnAmount = Math.min(turnRate, Math.abs(headingDiff <= 180 ? headingDiff : 360 - headingDiff));
+        ship.heading = (ship.heading + turnAmount * turnDirection + 360) % 360;
+    }
+
+    const speedDiff = ship.orders.targetSpeed - ship.speed;
+    if (speedDiff !== 0) {
+        const accelAmount = Math.min(ship.acceleration, Math.abs(speedDiff));
+        ship.speed += Math.sign(speedDiff) * accelAmount;
+        // Enforce the ship's maximum speed
+        ship.speed = Math.max(0, Math.min(ship.speed, ship.maxSpeed));
+    }
+
+    const radians = (ship.heading - 90) * (Math.PI / 180);
+    ship.x += ship.speed * Math.cos(radians) * 0.1;
+    ship.y += ship.speed * Math.sin(radians) * 0.1;
+
+    ship.x = Math.max(0, Math.min(MAP_WIDTH, ship.x));
+    ship.y = Math.max(0, Math.min(MAP_HEIGHT, ship.y));
+}
+
+function updateShipWeapons(ship, combatState) {
+    ship.weapons.forEach(weapon => {
+        if (weapon.cooldownRemaining > 0) weapon.cooldownRemaining--;
+
+        if (weapon.targetId && weapon.cooldownRemaining === 0 && ship.power >= weapon.powerCost) {
+            const target = combatState.ships.find(s => s.id === weapon.targetId);
+            if (target) {
+                const distance = Math.sqrt(Math.pow(target.x - ship.x, 2) + Math.pow(target.y - ship.y, 2));
+                if (distance <= weapon.range) {
+                    weapon.cooldownRemaining = weapon.cooldown;
+                    ship.power -= weapon.powerCost;
+                    if (weapon.type === 'beam') {
+                        combatState.effects.push({ type: 'beam', sourceId: ship.id, targetId: target.id, weapon: weapon });
+                        applyDamage(ship, target, weapon, combatState);
+                    } else if (weapon.type === 'projectile') {
+                        combatState.projectiles.push({
+                            id: `proj-${combatState.nextProjectileId++}`, ownerId: ship.id, targetId: target.id,
+                            x: ship.x, y: ship.y, heading: ship.heading, speed: weapon.speed,
+                            damage: weapon.damage, weapon: weapon,
+                        });
+                        showToast(`${ship.name} launches a missile at ${target.name}!`, 'info');
+                    }
+                }
+            }
+        } else if (weapon.targetId && ship.power < weapon.powerCost) {
+            if (ship.isPlayer) showToast(`${ship.name}: Insufficient power to fire ${weapon.name}!`, 'error');
+        }
+    });
+}
+
+function updateProjectiles(combatState) {
+    const newProjectiles = [];
+    combatState.projectiles.forEach(proj => {
+        const target = combatState.ships.find(s => s.id === proj.targetId);
+        if (!target || target.destroyed) return;
+
+        const dx = target.x - proj.x;
+        const dy = target.y - proj.y;
+        const distanceToTarget = Math.sqrt(dx * dx + dy * dy);
+        proj.heading = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+
+        if (distanceToTarget <= proj.speed) {
+            applyDamage(proj, target, proj.weapon, combatState);
+        } else {
+            const radians = (proj.heading - 90) * (Math.PI / 180);
+            proj.x += proj.speed * Math.cos(radians);
+            proj.y += proj.speed * Math.sin(radians);
+            newProjectiles.push(proj);
+        }
+    });
+    combatState.projectiles = newProjectiles;
+}
+
+function applyDamage(source, target, weapon, combatState) {
     if (target.destroyed) return;
 
-    appState.soloGameState.combat.effects.push({ type: 'impact', targetId: target.id });
-    const dx = attacker.x - target.x;
-    const dy = attacker.y - target.y;
+    combatState.effects.push({ type: 'impact', targetId: target.id });
+    
+    // Calculate angle from target to source (projectile or attacking ship)
+    const dx = source.x - target.x;
+    const dy = source.y - target.y;
     
     let attackAngle = Math.atan2(dy, dx) * (180 / Math.PI);
     let relativeAngle = (attackAngle - target.heading + 360 + 90) % 360;
@@ -784,18 +796,19 @@ function applyDamage(attacker, target, weapon) {
     if (damage > 0) {
         // Armor reduces incoming hull damage
         const armorLayers = target.components.find(c => c.category === 'armor')?.count || 0;
-        const damageAfterArmor = Math.max(0, damage - armorLayers);
+        damage = Math.max(0, damage - armorLayers);
 
-        if (damageAfterArmor > 0) {
+        if (damage > 0) {
             // Damage is first applied to hull integrity
             if (target.hullIntegrity > 0) {
-                const integrityDamage = Math.min(target.hullIntegrity, damageAfterArmor);
-                target.hullIntegrity -= integrityDamage;
-                showToast(`${target.name} hull integrity damaged for ${integrityDamage.toFixed(0)}!`, 'error');
+                const absorbed = Math.min(target.hullIntegrity, damage);
+                target.hullIntegrity -= absorbed;
+                damage -= absorbed; // Remaining damage bleeds through
+                showToast(`${target.name} hull integrity damaged for ${absorbed.toFixed(0)}!`, 'error');
             }
 
             // Any remaining damage causes system hits
-            const systemDamage = damageAfterArmor - (target.hullIntegrity > 0 ? 0 : target.hullIntegrity);
+            const systemDamage = damage;
             if (systemDamage > 0) {
                 // For every 5 points of system damage, a component is hit
                 const hits = Math.floor(systemDamage / 5) + 1;
@@ -808,7 +821,7 @@ function applyDamage(attacker, target, weapon) {
         }
     }
 
-    if ((target.criticalHits || 0) >= target.maxHp) {
+    if (target.hullIntegrity <= 0 || (target.criticalHits || 0) >= target.maxHp) {
         target.destroyed = true;
         showToast(`${target.name} has been destroyed!`, 'error');
     }
@@ -941,20 +954,19 @@ function startDragTargeting(event, ship, weaponIndex) {
     document.addEventListener('mouseup', onMouseUp);
 }
 
-function setTargetForAllWeapons(ship, targetId) {
+function setTargetForAllWeapons(ship, targetId, combatState) {
     if (!ship || !ship.weapons) return;
 
     ship.weapons.forEach(weapon => {
         weapon.targetId = targetId;
     });
 
-    renderCombatInfoPanel();
-    const targetName = appState.soloGameState.combat.ships.find(s => s.id === targetId)?.name || 'Unknown';
+    renderCombatInfoPanel(combatState);
+    const targetName = combatState.ships.find(s => s.id === targetId)?.name || 'Unknown';
     showToast(`All weapons on ${ship.name} targeting ${targetName}.`, 'info');
 }
 
-function aiGenerateOrders() {
-    const combatState = appState.soloGameState.combat;
+function aiGenerateOrders(combatState) {
     const allShips = combatState.ships.filter(s => !s.destroyed);    
     const shipsToControl = allShips.filter(s => s.aiAssisted);
     
@@ -988,7 +1000,7 @@ function aiGenerateOrders() {
         if (primaryTarget) {
             // --- Set Orders based on the primary target ---
             const dx = primaryTarget.x - aiShip.x;
-            const dy = primaryY - aiShip.y;
+            const dy = primaryTarget.y - aiShip.y;
             const distance = Math.sqrt(dx*dx + dy*dy);
 
             // 1. Set heading towards the enemy
@@ -1008,7 +1020,7 @@ function aiGenerateOrders() {
     // to show the orders the AI just set.
     const selectedShip = combatState.ships.find(s => s.id === combatState.selectedShipId);
     if (selectedShip && selectedShip.aiAssisted) {
-        renderCombatInfoPanel();
+        renderCombatInfoPanel(combatState);
     }
 }
 
@@ -1036,7 +1048,7 @@ export function processUIUpdate(data) {
     if (appState.isInitiator || data.game !== 'cosmicbalance') return;
 
     appState.soloGameState.combat = data.combatState;
-
-    renderCombatMap();
-    renderCombatInfoPanel();
+    
+    renderCombatMap(appState.soloGameState.combat);
+    renderCombatInfoPanel(appState.soloGameState.combat);
 }

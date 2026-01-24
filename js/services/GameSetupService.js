@@ -7,7 +7,7 @@ export class GameSetupService {
     }
 
     async createNewGame(config) {
-        const { numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric } = config;
+        const { numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric, hazardDensity } = config;
     
         this.engine.isHost = true;
         this.engine.paused = false; 
@@ -73,7 +73,26 @@ export class GameSetupService {
             };
         }));
 
+        // Add Pirate Faction
+        this.engine.state.players.push({
+            id: 'pirates',
+            factionName: 'Space Raiders',
+            team: 'Pirates',
+            techBase: 'UNSC', // Uses standard tech for now
+            color: '#666666', // Dark Grey
+            isAI: true,
+            aiProfile: 'PIRATE',
+            resources: { IO: 0, minerals: 0, scrap: 0, energy: 0 },
+            totalResources: { IO: 0, minerals: 0, scrap: 0, energy: 0 },
+            researchedTechs: [],
+            researchQueue: [],
+            fleets: [],
+            designs: []
+        });
+
         this.engine.state.systems = this.engine.galaxyService.generateGalaxyMap(numSystems, twoWayDensity, oneWayDensity, isSymmetric, this.engine.state.players.length);
+        const hazardCount = Math.floor(numSystems * ((hazardDensity !== undefined ? hazardDensity : 33) / 100));
+        this.engine.state.hazards = this.engine.galaxyService.generateHazards(hazardCount);
         this.engine.state.ships = [];
         this.engine.state.debrisFields = [];
         this.engine.selectedLocationId = null;

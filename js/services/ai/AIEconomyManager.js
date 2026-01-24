@@ -10,9 +10,13 @@ export class AIEconomyManager {
     update(aiPlayer, techData) {
         this._manageProduction(aiPlayer, techData);
         this._manageResearch(aiPlayer, techData);
+        this._managePlanets(aiPlayer);
     }
 
     _manageProduction(aiPlayer, techData) {
+        // Pirates do not produce ships via economy; they spawn via GameEngine logic
+        if (aiPlayer.aiProfile === 'PIRATE') return;
+
         const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
         const myShips = this.engine.state.ships.filter(s => s.owner === aiPlayer.id && s.hull > 0);
         const mySystems = this.engine.state.systems.filter(s => s.owner === aiPlayer.id);
@@ -88,13 +92,8 @@ export class AIEconomyManager {
         const transportCount = countShips('TroopTransport');
 
         if (combatShipCount === 0) {
-             if (hasExpansionTarget && transportCount === 0) {
-                 if (this._canAfford(resources, 'TroopTransport')) {
-                     if (buildShip('TroopTransport', 'Desperate Expansion')) return;
-                 } else {
-                     aiPlayer.aiGoal = 'Saving for Expansion';
-                     return;
-                 }
+             if (hasExpansionTarget && transportCount === 0 && this._canAfford(resources, 'TroopTransport')) {
+                 if (buildShip('TroopTransport', 'Desperate Expansion')) return;
              }
 
              if (this._canAfford(resources, 'Fighter')) {
@@ -238,6 +237,101 @@ export class AIEconomyManager {
         if (availableTechs.length > 0 && Math.random() < profile.researchPriority) {
             const techToResearch = availableTechs[Math.floor(Math.random() * availableTechs.length)];
             this.engine.economyService.handleResearchRequest({ senderId: aiPlayer.id, techId: techToResearch });
+        }
+    }
+
+    _managePlanets(aiPlayer) {
+        const profile = AI_PROFILES[aiPlayer.aiProfile] || AI_PROFILES.BALANCED;
+        const resources = aiPlayer.resources;
+
+        // Don't spend on citadels if we are saving for something critical or low on resources
+        if (aiPlayer.aiGoal && aiPlayer.aiGoal.startsWith('Saving')) return;
+        
+        // Minimum resource buffer before considering upgrades (ensure we can build ships)
+        let minIOBuffer = 2000; 
+        let minMinBuffer = 500;
+        
+        if (profile.name === 'Defensive' || profile.name === 'Turtle') {
+            minIOBuffer = 1000;
+            minMinBuffer = 200;
+        }
+
+        if (resources.IO < minIOBuffer || resources.minerals < minMinBuffer) return;
+
+        const mySystems = this.engine.state.systems.filter(s => s.owner === aiPlayer.id);
+        
+        // Identify border systems (systems connected to non-owned systems)
+        const borderSystems = new Set();
+        mySystems.forEach(sys => {
+            const isBorder = sys.links.some(l => {
+                const neighbor = this.engine.state.systems.find(s => s.id === l.targetId);
+                return neighbor && neighbor.owner !== aiPlayer.id;
+            });
+            if (isBorder) borderSystems.add(sys.id);
+        });
+
+        // Identify high value planets (Industrial/Mining)
+        const myPlanets = [];
+        mySystems.forEach(sys => {
+            if (sys.planets) {
+                sys.planets.forEach(p => {
+                    if (p.owner === aiPlayer.id) {
+                        myPlanets.push({ planet: p, system: sys });
+                    }
+                });
+            }
+        });
+
+        if (myPlanets.length === 0) return;
+
+        // Sort planets by priority
+        myPlanets.sort((a, b) => {
+            const sysAIsBorder = borderSystems.has(a.system.id);
+            const sysBIsBorder = borderSystems.has(b.system.id);
+
+            if (sysAIsBorder && !sysBIsBorder) return -1;
+            if (!sysAIsBorder && sysBIsBorder) return 1;
+
+            const typeValue = { 'Industrial': 4, 'Mining': 3, 'Terran': 2, 'Farming': 1 };
+            const valA = typeValue[a.planet.type] || 0;
+            const valB = typeValue[b.planet.type] || 0;
+
+            if (valA !== valB) return valB - valA;
+
+            return (a.planet.citadelLevel || 0) - (b.planet.citadelLevel || 0);
+        });
+
+        // Try to upgrade one planet per update cycle
+        for (const { planet, system } of myPlanets) {
+            const currentLevel = planet.citadelLevel || 0;
+            if (currentLevel >= 5) continue;
+
+            const costs = [
+                { io: 500, min: 100 },   // To Lvl 1
+                { io: 1000, min: 300 },  // To Lvl 2
+                { io: 2500, min: 800 },  // To Lvl 3
+                { io: 5000, min: 1500 }, // To Lvl 4
+                { io: 10000, min: 3000 } // To Lvl 5
+            ];
+            const cost = costs[currentLevel];
+
+            if (resources.IO >= cost.io + minIOBuffer && resources.minerals >= cost.min + minMinBuffer) {
+                let upgradeChance = 0.05;
+                if (profile.name === 'Defensive' || profile.name === 'Turtle') upgradeChance = 0.2;
+                if (borderSystems.has(system.id)) upgradeChance += 0.1;
+                if (planet.type === 'Industrial') upgradeChance += 0.1;
+                if (resources.IO > 10000) upgradeChance = 1.0;
+
+                if (Math.random() < upgradeChance) {
+                    this.engine.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `AI ${aiPlayer.factionName} upgrading Citadel on ${planet.name} (Lvl ${currentLevel} -> ${currentLevel + 1})`);
+                    this.engine.economyService.handleUpgradeCitadelRequest({
+                        senderId: aiPlayer.id,
+                        planetId: planet.id
+                    });
+                    aiPlayer.aiGoal = 'Upgrading Defenses';
+                    return;
+                }
+            }
         }
     }
 

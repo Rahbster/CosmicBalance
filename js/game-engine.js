@@ -104,6 +104,8 @@ export class GameEngine {
         this.liveReportInterval = 1000; // 1 second
         this.victoryCheckTimer = 0;
         this.victoryCheckInterval = 2000; // 2 seconds
+        this.pirateSpawnTimer = 0;
+        this.pirateSpawnInterval = 45000; // Check for pirate spawns every 45 seconds
         
         // Host-specific view settings
         this.hostView = {
@@ -560,6 +562,7 @@ export class GameEngine {
         this.performanceMonitor.end('Capture');
         
         this.runVictoryCheck(dt);
+        this.runPirateSpawning(dt);
         // These methods accumulate state changes without broadcasting every frame
         this.performanceMonitor.start('Economy');
         this.economyService.runResourceGeneration(dt);
@@ -607,6 +610,49 @@ export class GameEngine {
                     this.gameSetupService.replaceAIPlayer(p);
                 }
             });
+        }
+    }
+
+    runPirateSpawning(dt) {
+        this.pirateSpawnTimer += dt;
+        if (this.pirateSpawnTimer >= this.pirateSpawnInterval) {
+            this.pirateSpawnTimer = 0;
+
+            const piratePlayer = this.state.players.find(p => p.id === 'pirates');
+            if (!piratePlayer) return;
+
+            // Cap total pirate ships to prevent lag
+            const pirateShips = this.state.ships.filter(s => s.owner === 'pirates');
+            if (pirateShips.length > 30) return;
+
+            // Find a suitable system: Neutral or lightly defended
+            const candidates = this.state.systems.filter(sys => {
+                // Don't spawn in player home systems (too mean early game)
+                // We approximate "home" by checking if it has a station and high population/development, 
+                // but simpler is just checking if it's owned.
+                // Let's spawn in neutral systems or systems with low heat.
+                return !sys.owner || sys.heat < 50;
+            });
+
+            if (candidates.length === 0) return;
+
+            const targetSystem = candidates[Math.floor(Math.random() * candidates.length)];
+            
+            // Spawn a small raid group
+            const groupSize = Math.floor(Math.random() * 3) + 2; // 2-4 ships
+            const shipTypes = ['Fighter', 'Fighter', 'Frigate', 'Salvager']; // Salvagers used as "Raiders" visually
+            
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Spawning Pirate Raid in ${targetSystem.name}`);
+            this.broadcast({ type: 'GAME_TOAST', message: `Pirate activity detected in ${targetSystem.name}!`, toastType: 'warning' });
+
+            for (let i = 0; i < groupSize; i++) {
+                const type = shipTypes[Math.floor(Math.random() * shipTypes.length)];
+                // Spawn at edge of system
+                const angle = Math.random() * Math.PI * 2;
+                const dist = targetSystem.r + 100;
+                const pos = { x: targetSystem.x + Math.cos(angle) * dist, y: targetSystem.y + Math.sin(angle) * dist };
+                this.unitService.spawnShip(piratePlayer, type, pos, targetSystem);
+            }
         }
     }
 

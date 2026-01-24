@@ -158,11 +158,19 @@ export class EconomyService {
                         return;
                     }
 
+                    // Check if repair was cancelled (e.g. by movement)
+                    if (firstItem.startTime !== undefined && !ship.isRepairing) {
+                         location.buildQueue.shift();
+                         this.engine.broadcast({ type: 'GAME_BUILD_QUEUE_UPDATE', locationId: location.id, queue: location.buildQueue });
+                         return;
+                    }
+
                     // 1. Start Repair
                     if (firstItem.startTime === undefined) {
                         const needsRepair = ship.hull < ship.maxHull;
+                        const canUpgrade = owner.researchedTechs.length > (ship.vintageTechs?.length || 0);
                         const repairCost = needsRepair ? (ship.maxHull - ship.hull) * 0.5 : 0; // Scrap
-                        const upgradeCost = 100; // IO (Simplified for queue context)
+                        const upgradeCost = canUpgrade ? 100 : 0; // IO
 
                         if (owner && owner.resources.scrap >= repairCost && owner.resources.IO >= upgradeCost) {
                             owner.resources.scrap -= repairCost;
@@ -730,5 +738,140 @@ export class EconomyService {
             // Reuse existing single ship repair logic
             this.handleRepairShipRequest({ senderId, shipId });
         });
+    }
+
+    requestUpgradeCitadel(planetId) {
+        const request = {
+            type: 'GAME_REQUEST_UPGRADE_CITADEL',
+            senderId: this.engine.getIdentity().guid,
+            planetId: planetId
+        };
+        if (this.engine.isHost) this.handleUpgradeCitadelRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleUpgradeCitadelRequest({ senderId, planetId }) {
+        if (!this.engine.isHost) return;
+
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        let planet = null;
+        let system = null;
+        for (const sys of this.engine.state.systems) {
+            const p = sys.planets.find(pl => pl.id === planetId);
+            if (p) { planet = p; system = sys; break; }
+        }
+
+        if (!player || !planet || planet.owner !== senderId) return;
+
+        const currentLevel = planet.citadelLevel || 0;
+        if (currentLevel >= 5) return;
+
+        const costs = [
+            { io: 500, min: 100 },   // Lvl 1
+            { io: 1000, min: 300 },  // Lvl 2
+            { io: 2500, min: 800 },  // Lvl 3
+            { io: 5000, min: 1500 }, // Lvl 4
+            { io: 10000, min: 3000 } // Lvl 5
+        ];
+        const cost = costs[currentLevel];
+
+        if (player.resources.IO >= cost.io && player.resources.minerals >= cost.min) {
+            player.resources.IO -= cost.io;
+            player.resources.minerals -= cost.min;
+            planet.citadelLevel = currentLevel + 1;
+            
+            // Initialize Citadel stats based on level
+            if (planet.citadelLevel === 5) {
+                planet.maxShield = 5000;
+                planet.shield = 5000;
+            }
+
+            this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
+            // We need a way to broadcast planet updates specifically for citadel level
+            // Re-using GAME_PLANET_UPDATE with extra fields
+            this.engine.broadcast({ 
+                type: 'GAME_PLANET_UPDATE', 
+                planetId: planet.id, 
+                citadelLevel: planet.citadelLevel,
+                maxShield: planet.maxShield,
+                shield: planet.shield
+            });
+            
+            this.engine.broadcast({
+                type: 'GAME_TOAST',
+                playerId: senderId,
+                message: `Citadel upgraded to Level ${planet.citadelLevel}`,
+                toastType: 'success'
+            });
+        } else {
+            this.engine.broadcast({
+                type: 'GAME_TOAST',
+                playerId: senderId,
+                message: `Insufficient resources. Need ${cost.io} IO, ${cost.min} Minerals.`,
+                toastType: 'error'
+            });
+        }
+    }
+
+    requestDeployMine(shipId) {
+        const request = {
+            type: 'GAME_REQUEST_DEPLOY_MINE',
+            senderId: this.engine.getIdentity().guid,
+            shipId: shipId
+        };
+        if (this.engine.isHost) this.handleDeployMineRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleDeployMineRequest({ senderId, shipId }) {
+        if (!this.engine.isHost) return;
+        const ship = this.engine.state.ships.find(s => s.id === shipId);
+        if (!ship || ship.owner !== senderId) return;
+
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        const mineCost = { scrap: 50, energy: 20 };
+
+        if (player.resources.scrap >= mineCost.scrap && player.resources.energy >= mineCost.energy) {
+            player.resources.scrap -= mineCost.scrap;
+            player.resources.energy -= mineCost.energy;
+
+            if (!this.engine.state.mines) this.engine.state.mines = [];
+
+            const mine = {
+                id: `mine-${crypto.randomUUID()}`,
+                x: ship.x,
+                y: ship.y,
+                owner: senderId,
+                damage: 500,
+                radius: 50
+            };
+            this.engine.state.mines.push(mine);
+
+            this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
+            this.engine.broadcast({ type: 'GAME_MINE_DEPLOYED', mine: mine });
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'Space Mine Deployed', toastType: 'info' });
+        } else {
+             this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'Insufficient resources for mine.', toastType: 'error' });
+        }
+    }
+
+    requestToggleCloak(shipId) {
+         const request = {
+            type: 'GAME_REQUEST_TOGGLE_CLOAK',
+            senderId: this.engine.getIdentity().guid,
+            shipId: shipId
+        };
+        if (this.engine.isHost) this.handleToggleCloakRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleToggleCloakRequest({ senderId, shipId }) {
+        if (!this.engine.isHost) return;
+        const ship = this.engine.state.ships.find(s => s.id === shipId);
+        if (!ship || ship.owner !== senderId) return;
+
+        // Toggle
+        ship.isCloaked = !ship.isCloaked;
+        this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isCloaked: ship.isCloaked });
     }
 }

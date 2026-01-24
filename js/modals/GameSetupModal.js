@@ -35,6 +35,11 @@ export function showGameSetupModal(storageService) {
                         <input type="range" id="one-way-density" min="0" max="50" value="3" style="flex-grow: 1;">
                         <span id="one-way-density-value">3%</span>
                     </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="hazard-density">Hazard Density (10%):</label>
+                        <input type="range" id="hazard-density" min="0" max="100" value="10" style="flex-grow: 1;">
+                        <span id="hazard-density-value">10%</span>
+                    </div>
                     <div style="display: flex; align-items: center; gap: 10px; margin-top: 5px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px;">
                         <input type="checkbox" id="symmetric-map" style="width: 20px; height: 20px;">
                         <label for="symmetric-map" style="cursor: pointer;">Symmetric Map (Fair Start)</label>
@@ -66,6 +71,8 @@ export function showGameSetupModal(storageService) {
     const resourceRateValue = document.getElementById('resource-rate-value');
     const shipSpeedSlider = document.getElementById('ship-speed-rate');
     const shipSpeedValue = document.getElementById('ship-speed-rate-value');
+    const hazardSlider = document.getElementById('hazard-density');
+    const hazardValue = document.getElementById('hazard-density-value');
 
     // 3. Helper Functions
     function closeModal() {
@@ -84,6 +91,7 @@ export function showGameSetupModal(storageService) {
     if (oneWaySlider) oneWaySlider.addEventListener('input', () => oneWayValue.textContent = `${oneWaySlider.value}%`);
     if (resourceRateSlider) resourceRateSlider.addEventListener('input', () => resourceRateValue.textContent = `${resourceRateSlider.value}%`);
     if (shipSpeedSlider) shipSpeedSlider.addEventListener('input', () => shipSpeedValue.textContent = `${shipSpeedSlider.value}%`);
+    if (hazardSlider) hazardSlider.addEventListener('input', () => hazardValue.textContent = `${hazardSlider.value}%`);
 
     // 5. Load saved settings
     const config = storageService ? storageService.getSetupConfig() : null;
@@ -107,6 +115,10 @@ export function showGameSetupModal(storageService) {
             if (config.oneWayDensity) {
                 document.getElementById('one-way-density').value = config.oneWayDensity;
                 if (oneWayValue) oneWayValue.textContent = `${config.oneWayDensity}%`;
+            }
+            if (config.hazardDensity !== undefined) {
+                document.getElementById('hazard-density').value = config.hazardDensity;
+                if (hazardValue) hazardValue.textContent = `${config.hazardDensity}%`;
             }
             if (config.isSymmetric !== undefined) document.getElementById('symmetric-map').checked = config.isSymmetric;
             if (config.isSpectator !== undefined) document.getElementById('spectator-mode').checked = config.isSpectator;

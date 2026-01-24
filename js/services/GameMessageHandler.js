@@ -147,8 +147,18 @@ export class GameMessageHandler {
                     if (data.systemOwner !== undefined && (!data.systemId || data.systemId === system.id)) {
                         system.owner = data.systemOwner;
                     }
+                    if (data.citadelLevel !== undefined) planet.citadelLevel = data.citadelLevel;
+                    if (data.maxShield !== undefined) planet.maxShield = data.maxShield;
+                    if (data.shield !== undefined) planet.shield = data.shield;
                     break;
                 }
+            }
+        } else if (data.type === 'GAME_MINE_DEPLOYED') {
+            if (!this.engine.state.mines) this.engine.state.mines = [];
+            this.engine.state.mines.push(data.mine);
+        } else if (data.type === 'GAME_MINES_REMOVED') {
+            if (this.engine.state.mines) {
+                this.engine.state.mines = this.engine.state.mines.filter(m => !data.mineIds.includes(m.id));
             }
         } else if (data.type === 'GAME_SYSTEM_RENAMED' || data.type === 'GAME_PLANET_RENAMED') {
             const system = this.engine.state.systems.find(sys => sys.id === data.systemId);

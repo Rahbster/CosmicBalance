@@ -288,6 +288,25 @@ export class GalaxyService {
         return systems;
     }
 
+    generateHazards(numHazards) {
+        const hazards = [];
+        const canvasWidth = this.canvas.parentElement.clientWidth;
+        const canvasHeight = 600;
+        const zones = Math.max(1, numHazards / 5);
+
+        for (let i = 0; i < numHazards; i++) {
+            const type = Math.random() > 0.3 ? 'NEBULA' : 'BLACK_HOLE';
+            hazards.push({
+                id: `hazard-${i}`,
+                type: type,
+                x: Math.random() * (canvasWidth * zones),
+                y: Math.random() * (canvasHeight * zones),
+                radius: type === 'NEBULA' ? (150 + Math.random() * 150) : (60 + Math.random() * 60)
+            });
+        }
+        return hazards;
+    }
+
     generateSymmetricMap(totalSystems, twoWayDensity, oneWayDensity, playerCount) {
         if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GalaxyGen] Starting SYMMETRIC generation for ${playerCount} players.`);
         

@@ -42,7 +42,11 @@ export class SelectionManager {
         if (this.isSelectionPanelOpen && this.selectedShipId) {
             this._renderSelectedShipUI();
         } else if (this.selectedLocationId) {
-            this._renderSelectedLocationUI();
+            if (this.selectedLocationId.includes('-p')) {
+                this._renderSelectedPlanetUI();
+            } else {
+                this._renderSelectedLocationUI();
+            }
         } else {
             const container = document.getElementById('selected-planet-info');
             if (container) container.classList.add('hidden');
@@ -189,6 +193,14 @@ export class SelectionManager {
                     actionsHtml += `<button data-action="recycle" data-ship-id="${ship.id}" data-target-id="${nearbyDebris[0].id}">Recycle Debris</button>`;
                 }
             }
+
+            // Mine Layer Capability (Generic for now, or check ship type)
+            actionsHtml += `<button data-action="deploy-mine" data-ship-id="${ship.id}" title="Cost: 50 Scrap, 20 Energy">Deploy Mine</button>`;
+
+            // Cloaking Capability
+            const cloakLabel = ship.isCloaked ? "De-Cloak" : "Cloak";
+            const cloakStyle = ship.isCloaked ? "background-color: #444; border: 1px solid #00ff00;" : "";
+            actionsHtml += `<button data-action="toggle-cloak" data-ship-id="${ship.id}" style="${cloakStyle}">${cloakLabel}</button>`;
         }
 
         const radialTriggerHtml = isOwner ? `<button data-action="open-radial" data-ship-id="${ship.id}">Actions Menu</button>` : '';
@@ -234,6 +246,71 @@ export class SelectionManager {
                 </div>
             </div>
         `;
+    }
+
+    _renderSelectedPlanetUI() {
+        const container = document.getElementById('selected-planet-info');
+        if (!this.selectedLocationId) return;
+
+        // Find the planet
+        let planet = null;
+        let system = null;
+        for (const sys of this.engine.state.systems) {
+            const p = sys.planets.find(pl => pl.id === this.selectedLocationId);
+            if (p) {
+                planet = p;
+                system = sys;
+                break;
+            }
+        }
+
+        if (!planet) {
+            container.classList.add('hidden');
+            return;
+        }
+
+        const owner = this.engine.state.players.find(p => p.id === planet.owner);
+        const isOwner = owner && owner.id === this.engine.getIdentity().guid;
+        const citadelLevel = planet.citadelLevel || 0;
+
+        let upgradeHtml = '';
+        if (isOwner) {
+            const costs = [
+                { io: 500, min: 100 },   // Lvl 1
+                { io: 1000, min: 300 },  // Lvl 2
+                { io: 2500, min: 800 },  // Lvl 3
+                { io: 5000, min: 1500 }, // Lvl 4
+                { io: 10000, min: 3000 } // Lvl 5
+            ];
+            
+            if (citadelLevel < 5) {
+                const cost = costs[citadelLevel];
+                upgradeHtml = `
+                    <div style="margin-top: 10px; border-top: 1px solid #444; padding-top: 5px;">
+                        <h4>Citadel Upgrade</h4>
+                        <p>Next Level: ${citadelLevel + 1}</p>
+                        <p>Cost: ${cost.io} IO, ${cost.min} Min</p>
+                        <button data-action="upgrade-citadel" data-planet-id="${planet.id}">Upgrade to Level ${citadelLevel + 1}</button>
+                    </div>
+                `;
+            } else {
+                upgradeHtml = `<p style="color: gold;">Max Citadel Level Reached</p>`;
+            }
+        }
+
+        let html = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0;">${planet.name}</h3>
+                <button data-action="hide-panel" style="background:none;border:none;color:inherit;cursor:pointer;font-size:1.2em;" title="Hide Panel">▼</button>
+            </div>
+            <p>Type: ${planet.type}</p>
+            <p>Owner: ${owner ? owner.factionName : 'Neutral'}</p>
+            <p>Citadel Level: ${citadelLevel}</p>
+            ${upgradeHtml}
+        `;
+
+        container.innerHTML = html;
+        container.classList.remove('hidden');
     }
 
     _renderSelectedLocationUI() {

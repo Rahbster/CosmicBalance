@@ -1,4 +1,5 @@
 import { SHIP_STATE } from '../cb_constants.js';
+import { PLANET_TYPES } from './GalaxyService.js';
 
 export class InteractionService {
     constructor(canvas, engine) {
@@ -98,9 +99,45 @@ export class InteractionService {
                 return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ; // Use same scaled radius for debris
             });
 
+            const clickedPlanets = [];
+            this.state.systems.forEach(sys => {
+                const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
+                if (!isHostGodView && (!visibility || visibility === 'unexplored')) return;
+
+                const effRadius = this.engine.spatialService.getSystemEffectiveRadius(sys);
+                const dx = sys.x - x;
+                const dy = sys.y - y;
+                if (dx*dx + dy*dy > effRadius * effRadius) return;
+
+                if (sys.planets) {
+                    const r = sys.r;
+                    const orbitBase = r + 10;
+                    const planetGap = 8;
+                    
+                    sys.planets.forEach((planet, i) => {
+                        const angle = (this.engine.state.gameTime / 10000 + i) % (Math.PI * 2);
+                        const semiMajor = orbitBase + (i * planetGap);
+                        const semiMinor = semiMajor * 0.65;
+                        const tilt = ((sys.x + sys.y) % 360) * (Math.PI / 180);
+
+                        const px = sys.x + (Math.cos(angle) * semiMajor * Math.cos(tilt) - Math.sin(angle) * semiMinor * Math.sin(tilt));
+                        const py = sys.y + (Math.cos(angle) * semiMajor * Math.sin(tilt) + Math.sin(angle) * semiMinor * Math.cos(tilt));
+
+                        const pRadius = (PLANET_TYPES[planet.type]?.radius || 3);
+                        const hitRadius = Math.max(pRadius + 2, 10 / this.engine.camera.zoom); 
+                        const clickDistSq = (px - x)**2 + (py - y)**2;
+                        
+                        if (clickDistSq <= hitRadius * hitRadius) {
+                            clickedPlanets.push({ type: 'planet', entity: planet });
+                        }
+                    });
+                }
+            });
+
             const allTargets = [
                 ...clickedFleets.map(f => ({ type: 'fleet', entity: f })),
                 ...clickedShips.map(s => ({ type: 'ship', entity: s })),
+                ...clickedPlanets.map(p => ({ type: 'planet', entity: p.entity })),
                 ...clickedSystems.map(s => ({ type: 'system', entity: s })),
                 ...clickedDebris.map(d => ({ type: 'debris', entity: d }))
             ];
@@ -182,6 +219,13 @@ export class InteractionService {
                         }
                     }
                     return; // Stop processing if we handled a system
+                } else if (target.type === 'planet') {
+                    const planet = target.entity;
+                    this.engine.selectionManager.setSelectedLocation(planet.id);
+                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                        detail: { entity: planet, x: e.clientX, y: e.clientY } 
+                    }));
+                    return;
                 } else if (target.type === 'debris') {
                     const debris = target.entity;
                     if (selectedShipId) {

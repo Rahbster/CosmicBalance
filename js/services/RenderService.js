@@ -168,6 +168,12 @@ export class RenderService {
             }
         });
 
+        // 0.6 Draw Hazards (Nebulas, Black Holes)
+        this.drawHazards(ctx);
+
+        // 0.7 Draw Mines
+        this.drawMines(ctx);
+
         // 1. Draw Links (Warp lanes)
         this.drawLinks(ctx, visibleSystems, state.systems);
 
@@ -197,8 +203,14 @@ export class RenderService {
         const visibleShips = isHostGodView 
             ? state.ships 
             : state.ships.filter(ship => {
+                // Cloaking Check
                 const isOwner = viewingIds.includes(ship.owner);
-                return isOwner || (ship.currentSystemId && presenceSystemIds.has(ship.currentSystemId));
+                if (ship.isCloaked && !isOwner) return false;
+
+                // Standard Visibility Check
+                const isVisible = isOwner || (ship.currentSystemId && presenceSystemIds.has(ship.currentSystemId));
+                
+                return isVisible;
             });
         
         // Group by fleet
@@ -223,7 +235,11 @@ export class RenderService {
         });
 
         // Draw Independent Ships
-        independentShips.forEach(ship => this.shipRenderer.drawShip(ship));
+        independentShips.forEach(ship => {
+            const isOwner = viewingIds.includes(ship.owner);
+            const opacity = (ship.isCloaked && isOwner) ? 0.5 : 1.0;
+            this.shipRenderer.drawShip(ship, opacity);
+        });
 
         this.drawSelection(ctx, checkVisibility, visibleShips);
 
@@ -759,6 +775,21 @@ export class RenderService {
             ctx.beginPath();
             ctx.arc(x, y, finalRadius + ringOffset, 0, Math.PI * 2);
             ctx.stroke();
+
+            // Draw Citadel Level Indicators (Pips on the ring)
+            if (planet.citadelLevel > 0) {
+                ctx.fillStyle = owner ? owner.color : '#FFFFFF';
+                const pipSize = 3 / zoom;
+                const indicatorRadius = finalRadius + ringOffset;
+                
+                for (let i = 0; i < planet.citadelLevel; i++) {
+                    const angle = (Math.PI * 2 * i) / planet.citadelLevel - (Math.PI / 2);
+                    const px = x + Math.cos(angle) * indicatorRadius;
+                    const py = y + Math.sin(angle) * indicatorRadius;
+                    ctx.fillRect(px - pipSize / 2, py - pipSize / 2, pipSize, pipSize);
+                }
+            }
+
             ringOffset += 3 / zoom; // Push next ring out
         }
 
@@ -1227,13 +1258,124 @@ export class RenderService {
         return canvas;
     }
 
+    drawMines(ctx) {
+        if (!this.gameEngine.state.mines) return;
+        const zoom = this.gameEngine.camera.zoom;
+        const viewingIds = this.gameEngine.getViewingPlayerIds();
+        const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
+
+        this.gameEngine.state.mines.forEach(mine => {
+            // Visibility check: Owner or God view
+            if (!isHostGodView && !viewingIds.includes(mine.owner)) {
+                // Mines are invisible to enemies unless detected (detection logic not yet implemented, so invisible for now)
+                return;
+            }
+
+            ctx.fillStyle = '#FF4444';
+            ctx.strokeStyle = '#880000';
+            ctx.lineWidth = 1 / zoom;
+            
+            const r = 4 / zoom;
+            ctx.beginPath();
+            ctx.arc(mine.x, mine.y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Draw spikes
+            for(let i=0; i<4; i++) {
+                const angle = (Math.PI / 2) * i + (this.gameEngine.state.gameTime / 500);
+                const sx = mine.x + Math.cos(angle) * r * 2;
+                const sy = mine.y + Math.sin(angle) * r * 2;
+                ctx.beginPath();
+                ctx.moveTo(mine.x, mine.y);
+                ctx.lineTo(sx, sy);
+                ctx.stroke();
+            }
+        });
+    }
+
+    drawHazards(ctx) {
+        if (!this.gameEngine.state.hazards) return;
+        const zoom = this.gameEngine.camera.zoom;
+
+        this.gameEngine.state.hazards.forEach(hazard => {
+            if (hazard.type === 'NEBULA') {
+                ctx.save();
+                ctx.translate(hazard.x, hazard.y);
+                
+                const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, hazard.radius);
+                grad.addColorStop(0, 'rgba(100, 0, 100, 0.2)');
+                grad.addColorStop(0.6, 'rgba(150, 50, 150, 0.1)');
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(0, 0, hazard.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else if (hazard.type === 'BLACK_HOLE') {
+                ctx.save();
+                ctx.translate(hazard.x, hazard.y);
+                
+                // Event Horizon
+                ctx.fillStyle = '#000000';
+                ctx.strokeStyle = 'rgba(100, 100, 255, 0.5)';
+                ctx.lineWidth = 2 / zoom;
+                ctx.beginPath();
+                ctx.arc(0, 0, hazard.radius * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Accretion Disk
+                ctx.strokeStyle = 'rgba(200, 100, 50, 0.3)';
+                ctx.lineWidth = 4 / zoom;
+                ctx.beginPath();
+                ctx.arc(0, 0, hazard.radius * 0.6, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        });
+    }
+
     drawSelection(ctx, checkVisibility, visibleShips) {
         const selLocId = this.gameEngine.selectionManager.selectedLocationId;
         const selShipId = this.gameEngine.selectionManager.selectedShipId;
         const state = this.gameEngine.state;
 
         if (selLocId) {
-            const sys = state.systems.find(s => s.id === selLocId);
+            // Check if it's a planet
+            if (selLocId.includes('-p')) {
+                // Find planet
+                for (const sys of state.systems) {
+                    const planetIndex = sys.planets.findIndex(p => p.id === selLocId);
+                    if (planetIndex !== -1) {
+                        const planet = sys.planets[planetIndex];
+                        // Calculate position (duplicate logic from drawSystem/InteractionService)
+                        const r = sys.r;
+                        const orbitBase = r + 10;
+                        const planetGap = 8;
+                        const angle = (this.gameEngine.state.gameTime / 10000 + planetIndex) % (Math.PI * 2);
+                        const semiMajor = orbitBase + (planetIndex * planetGap);
+                        const semiMinor = semiMajor * 0.65;
+                        const tilt = ((sys.x + sys.y) % 360) * (Math.PI / 180);
+
+                        const px = sys.x + (Math.cos(angle) * semiMajor * Math.cos(tilt) - Math.sin(angle) * semiMinor * Math.sin(tilt));
+                        const py = sys.y + (Math.cos(angle) * semiMajor * Math.sin(tilt) + Math.sin(angle) * semiMinor * Math.cos(tilt));
+
+                        const pRadius = (PLANET_TYPES[planet.type]?.radius || 3);
+                        const selectionRadius = (pRadius + 5) / this.gameEngine.camera.zoom * this.gameEngine.camera.zoom + (4 / this.gameEngine.camera.zoom);
+
+                        ctx.strokeStyle = '#00FF00';
+                        ctx.lineWidth = 2 / this.gameEngine.camera.zoom;
+                        ctx.beginPath();
+                        ctx.arc(px, py, selectionRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        break;
+                    }
+                }
+            } else {
+                const sys = state.systems.find(s => s.id === selLocId);
             if (sys) {
                 // Check visibility
                 const visibility = checkVisibility ? checkVisibility(sys) : 'explored';
@@ -1268,6 +1410,7 @@ export class RenderService {
                     ctx.arc(station.x, station.y, selectionRadius, 0, Math.PI * 2);
                     ctx.stroke();
                 }
+            }
             }
         }
 

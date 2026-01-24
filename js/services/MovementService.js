@@ -32,7 +32,7 @@ export class MovementService {
                 sublightSpeed = fleetSpeeds[ship.fleetId].sublight;
             }
 
-            this._updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed);
+            this._updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed, this._getEnvironmentalMod(ship, dt));
         });
 
         // Handle Orbiting for Idle Ships
@@ -41,9 +41,91 @@ export class MovementService {
                 this._updateShipOrbit(ship, dt);
             }
         });
+
+        this.updateDebris(dt);
     }
 
-    _updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed) {
+    _getEnvironmentalMod(ship, dt) {
+        if (!this.engine.state.hazards) return 1.0;
+        
+        let speedMod = 1.0;
+        
+        this.engine.state.hazards.forEach(h => {
+            const dx = h.x - ship.x;
+            const dy = h.y - ship.y;
+            const distSq = dx*dx + dy*dy;
+            
+            if (distSq < h.radius * h.radius) {
+                if (h.type === 'NEBULA') {
+                    speedMod = 0.4; // 40% speed in Nebula
+                } else if (h.type === 'BLACK_HOLE') {
+                    speedMod = 0.25; // Strong slowdown
+
+                    // Gravity Pull
+                    const pullStrength = 6.0 * (dt / 1000);
+                    const dist = Math.sqrt(distSq);
+                    if (dist > 10) { 
+                        ship.x += (dx / dist) * pullStrength;
+                        ship.y += (dy / dist) * pullStrength;
+                    }
+                    // Crushing damage near center
+                    if (dist < 5) {
+                        ship.hull = 0; // Instant destruction
+                    } else if (dist < 25 && ship.hull > 0) {
+                        ship.hull -= 10 * (dt/1000);
+                    }
+                }
+            }
+        });
+        return speedMod;
+    }
+
+    updateDebris(dt) {
+        if (!this.engine.state.hazards) return;
+        
+        const blackHoles = this.engine.state.hazards.filter(h => h.type === 'BLACK_HOLE');
+        if (blackHoles.length === 0) return;
+
+        const debrisToRemove = new Set();
+
+        this.engine.state.debrisFields.forEach(debris => {
+            blackHoles.forEach(bh => {
+                const dx = bh.x - debris.x;
+                const dy = bh.y - debris.y;
+                const distSq = dx*dx + dy*dy;
+                
+                if (distSq < bh.radius * bh.radius) {
+                    const dist = Math.sqrt(distSq);
+                    const pullStrength = 40 * (dt / 1000);
+                    
+                    if (dist > 5) {
+                        debris.x += (dx / dist) * pullStrength;
+                        debris.y += (dy / dist) * pullStrength;
+                    } else if (this.engine.isHost) {
+                        debrisToRemove.add(debris.id);
+                    }
+                }
+            });
+        });
+
+        if (this.engine.isHost && debrisToRemove.size > 0) {
+            this.engine.broadcast({ type: 'GAME_DEBRIS_REMOVED', debrisIds: Array.from(debrisToRemove) });
+        }
+    }
+
+    _cancelRepair(ship) {
+        if (ship.isRepairing) {
+            this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Ship ${ship.id} cancelling repair to move.`);
+            delete ship.isRepairing;
+            delete ship.repairTimer;
+            delete ship.totalRepairTime;
+            delete ship.initialHull;
+            delete ship.repairManagedByQueue;
+            this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, isRepairing: false });
+        }
+    }
+
+    _updateShipMovement(ship, dt, WARP_SPEED_FACTOR, SUBLIGHT_SPEED_FACTOR, warpSpeed, sublightSpeed, envSpeedMod = 1.0) {
         if (ship.targetId) {
             const system = this.engine.state.systems.find(sys => sys.id === ship.targetId);
             const debris = !system ? this.engine.state.debrisFields.find(d => d.id === ship.targetId) : null;
@@ -64,7 +146,7 @@ export class MovementService {
                         this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `${ship.type} ${ship.id} departing to ${ship.targetId}. Dist: ${dist.toFixed(1)} ArrivalRadius: ${arrivalRadius.toFixed(1)}`);
                         delete ship.isDeparting;
                     }
-                    const moveSpeed = warpSpeed * WARP_SPEED_FACTOR;
+                    const moveSpeed = warpSpeed * WARP_SPEED_FACTOR * envSpeedMod;
                     const moveDistance = moveSpeed * (dt / 1000);
                     const travelDistance = dist > arrivalRadius ? Math.min(moveDistance, dist - arrivalRadius) : moveDistance;
 
@@ -215,7 +297,7 @@ export class MovementService {
 
             // Increased snap distance to 5 to prevent micro-stuttering at end of travel
             if (dist > 5) {
-                const moveSpeed = (sublightSpeed || 0) * SUBLIGHT_SPEED_FACTOR;
+                const moveSpeed = (sublightSpeed || 0) * SUBLIGHT_SPEED_FACTOR * envSpeedMod;
                 
                 // Safety check: if speed is 0, we will never arrive. Force arrival.
                 if (moveSpeed <= 0) {
@@ -418,6 +500,14 @@ export class MovementService {
     moveShip(shipId, targetId) {
         const ship = this.engine.state.ships.find(s => s.id === shipId);
         if (ship) {
+            if (ship.isBuilding) {
+                if (this.engine.isHost) this.engine.broadcast({ type: 'GAME_TOAST', playerId: ship.owner, message: 'Cannot move ship under construction.', toastType: 'warning' });
+                return;
+            }
+            if (ship.isRepairing) {
+                this._cancelRepair(ship);
+            }
+
             if (ship.currentSystemId === targetId) {
                 this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.WARNING, `Ship ${ship.id} attempted to move to current system ${targetId}. Ignoring.`);
                 return;
@@ -733,6 +823,11 @@ export class MovementService {
             return;
         }
 
+        if (ship.isBuilding) return;
+        if (ship.isRepairing) {
+            this._cancelRepair(ship);
+        }
+
         // Set the patrol state on the ship
         ship.patrolSystemId = systemId;
         ship.targetId = null; // Clear any movement target
@@ -785,6 +880,12 @@ export class MovementService {
         } else {
             // In system, move to debris
             this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Salvager ${ship.id} moving to debris ${targetDebris.id} in current system.`);
+            
+            if (ship.isBuilding) return;
+            if (ship.isRepairing) {
+                this._cancelRepair(ship);
+            }
+
             ship.arrivalPoint = { x: targetDebris.x, y: targetDebris.y };
             ship.moveState = SHIP_STATE.MOVING;
             ship.targetId = null;

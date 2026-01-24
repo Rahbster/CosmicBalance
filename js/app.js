@@ -796,6 +796,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const itemId = e.target.dataset.itemId;
                     if (!locationId || !itemId) return;
                     gameEngine.requestCancelBuild(locationId, itemId);
+                } else if (action === 'upgrade-citadel') {
+                    const planetId = e.target.dataset.planetId;
+                    if (planetId) gameEngine.economyService.requestUpgradeCitadel(planetId);
+                } else if (action === 'deploy-mine') {
+                    if (shipId) gameEngine.economyService.requestDeployMine(shipId);
+                } else if (action === 'toggle-cloak') {
+                    if (shipId) gameEngine.economyService.requestToggleCloak(shipId);
                 } else if (action === 'hide-panel') {
                     gameEngine.closeSelectionPanel();
                 }
@@ -980,12 +987,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const twoWayValue = document.getElementById('two-way-density-value');
         const oneWaySlider = document.getElementById('one-way-density');
         const oneWayValue = document.getElementById('one-way-density-value');
+        const hazardSlider = document.getElementById('hazard-density');
+        const hazardValue = document.getElementById('hazard-density-value');
 
         if (twoWaySlider) {
             twoWaySlider.addEventListener('input', () => twoWayValue.textContent = `${twoWaySlider.value}%`);
         }
         if (oneWaySlider) {
             oneWaySlider.addEventListener('input', () => oneWayValue.textContent = `${oneWaySlider.value}%`);
+        }
+        if (hazardSlider) {
+            hazardSlider.addEventListener('input', () => hazardValue.textContent = `${hazardSlider.value}%`);
         }
 
         // --- Host View Controls ---
@@ -1057,13 +1069,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const twoWayDensity = parseInt(document.getElementById('two-way-density').value, 10);
             const oneWayDensity = parseInt(document.getElementById('one-way-density').value, 10);
             
+            const hazardDensity = document.getElementById('hazard-density') ? parseInt(document.getElementById('hazard-density').value, 10) : 33;
+
             const resourceRateRaw = parseInt(document.getElementById('resource-rate').value, 10);
             const shipSpeedRateRaw = parseInt(document.getElementById('ship-speed-rate').value, 10);
             const isSymmetric = document.getElementById('symmetric-map').checked;
 
             // Save configuration for next time
             const setupConfig = {
-                numSystems, numAI, twoWayDensity, oneWayDensity,
+                numSystems, numAI, twoWayDensity, oneWayDensity, hazardDensity,
                 resourceRateVal: resourceRateRaw,
                 shipSpeedRateVal: shipSpeedRateRaw,
                 isSpectator, isSymmetric
@@ -1075,7 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const resourceRate = resourceRateVal / 100; // Convert percentage to multiplier
             const shipSpeedRate = shipSpeedRateRaw / 100; // Convert percentage to multiplier
 
-            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric });
+            const newState = await gameEngine.createNewGame({ numSystems, aiPlayers, humanPlayers, twoWayDensity, oneWayDensity, resourceRate, shipSpeedRate, isSpectator, isSymmetric, hazardDensity });
             peerManager.send({ type: 'GAME_SET_STATE', state: newState });
             updateHeaderControls();
             toastManager.show('New game created and sent to peers!', 'success');
