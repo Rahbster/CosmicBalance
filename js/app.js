@@ -801,6 +801,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (planetId) gameEngine.economyService.requestUpgradeCitadel(planetId);
                 } else if (action === 'deploy-mine') {
                     if (shipId) gameEngine.economyService.requestDeployMine(shipId);
+                } else if (action === 'genesis-torpedo') {
+                    if (shipId) gameEngine.economyService.requestGenesisTorpedo(shipId);
                 } else if (action === 'toggle-cloak') {
                     if (shipId) gameEngine.economyService.requestToggleCloak(shipId);
                 } else if (action === 'hide-panel') {

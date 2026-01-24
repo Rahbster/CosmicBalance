@@ -651,7 +651,7 @@ export class GameEngine {
                 const angle = Math.random() * Math.PI * 2;
                 const dist = targetSystem.r + 100;
                 const pos = { x: targetSystem.x + Math.cos(angle) * dist, y: targetSystem.y + Math.sin(angle) * dist };
-                this.unitService.spawnShip(piratePlayer, type, pos, targetSystem);
+                this.unitService.spawnShip(piratePlayer, type, pos, targetSystem, { patrolSystemId: targetSystem.id });
             }
         }
     }

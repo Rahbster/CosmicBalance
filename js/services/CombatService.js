@@ -185,6 +185,11 @@ export class CombatService {
                 
                 this._applyDamage(target, damage);
                 planet.quasarCooldown = 5000; // 5 seconds cooldown
+
+                // Visuals
+                planet.quasarTargetId = target.id;
+                planet.quasarTargetPos = { x: target.x, y: target.y }; // Store position in case target is destroyed
+                planet.quasarFireTime = this.engine.state.gameTime;
             }
         }
     }

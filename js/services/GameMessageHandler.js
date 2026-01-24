@@ -111,6 +111,8 @@ export class GameMessageHandler {
             this.engine.economyService.handleRepairShipRequest(data);
         } else if (data.type === 'GAME_REQUEST_REPAIR_FLEET') {
             this.engine.economyService.handleRepairFleetRequest(data);
+        } else if (data.type === 'GAME_REQUEST_GENESIS_TORPEDO') {
+            this.engine.economyService.handleGenesisTorpedoRequest(data);
         } else if (data.type === 'GAME_TECH_RESEARCHED') {
             const player = this.engine.state.players.find(p => p.id === data.playerId);
             if (player && !player.researchedTechs.includes(data.techId)) {
@@ -151,6 +153,15 @@ export class GameMessageHandler {
                     if (data.maxShield !== undefined) planet.maxShield = data.maxShield;
                     if (data.shield !== undefined) planet.shield = data.shield;
                     break;
+                }
+            }
+        } else if (data.type === 'GAME_PLANET_CREATED') {
+            const system = this.engine.state.systems.find(s => s.id === data.systemId);
+            if (system) {
+                if (!system.planets) system.planets = [];
+                system.planets.push(data.planet);
+                if (data.genesisEffect) {
+                    system.genesisEffect = data.genesisEffect;
                 }
             }
         } else if (data.type === 'GAME_MINE_DEPLOYED') {

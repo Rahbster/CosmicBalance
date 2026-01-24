@@ -558,6 +558,18 @@ export class GalaxyService {
         return this._instantiatePlanets(systemId, config);
     }
 
+    generateRandomPlanet(systemId, planetIndex) {
+        const rand = Math.random();
+        let planetType;
+        if (rand < 0.1) { planetType = 'Industrial'; }
+        else if (rand < 0.3) { planetType = 'Mining'; }
+        else if (rand < 0.6) { planetType = 'Farming'; }
+        else { planetType = 'Terran'; }
+        
+        const size = Math.random() * 10 + 5;
+        return { id: `${systemId}-p${planetIndex}`, systemId, name: `${planetType} Planet ${planetIndex + 1}`, type: planetType, size: size, owner: null, captureProgress: 0, capturingTeam: null };
+    }
+
     _generatePlanetConfig() {
         const planetCount = this._getPlanetCount();
         const planets = [];

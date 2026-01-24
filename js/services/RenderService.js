@@ -241,6 +241,8 @@ export class RenderService {
             this.shipRenderer.drawShip(ship, opacity);
         });
 
+        this.drawCombatEffects(ctx, state.systems, shipMap, state.gameTime);
+
         this.drawSelection(ctx, checkVisibility, visibleShips);
 
         ctx.restore();
@@ -824,6 +826,123 @@ export class RenderService {
                 ctx.stroke();
             }
         }
+
+        // Draw Shield Bubble (Citadel Level 5)
+        if (planet.shield > 0) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.6)';
+            ctx.fillStyle = 'rgba(100, 200, 255, 0.1)';
+            ctx.lineWidth = 1 / zoom;
+            ctx.beginPath();
+            ctx.arc(x, y, finalRadius * 1.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    drawCombatEffects(ctx, systems, shipMap, gameTime) {
+        systems.forEach(system => {
+            if (!system.planets) return;
+            system.planets.forEach((planet, i) => {
+                // Draw Quasar Cannon Beam (lasts 500ms)
+                if (planet.quasarFireTime && (gameTime - planet.quasarFireTime) < 500) {
+                    let targetPos = null;
+                    const targetShip = shipMap.get(planet.quasarTargetId);
+                    
+                    if (targetShip) {
+                        targetPos = { x: targetShip.x, y: targetShip.y };
+                    } else if (planet.quasarTargetPos) {
+                        targetPos = planet.quasarTargetPos;
+                    }
+
+                    if (targetPos) {
+                        const r = system.r;
+                        const orbitBase = r + 10;
+                        const planetGap = 8;
+                        
+                        const angle = (gameTime / 10000 + i) % (Math.PI * 2);
+                        const semiMajor = orbitBase + (i * planetGap);
+                        const semiMinor = semiMajor * 0.65;
+                        const tilt = ((system.x + system.y) % 360) * (Math.PI / 180);
+
+                        const ux = Math.cos(angle) * semiMajor;
+                        const uy = Math.sin(angle) * semiMinor;
+
+                        const px = system.x + (ux * Math.cos(tilt) - uy * Math.sin(tilt));
+                        const py = system.y + (ux * Math.sin(tilt) + uy * Math.cos(tilt));
+
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(targetPos.x, targetPos.y);
+                        
+                        // Pulsing beam effect
+                        const alpha = 1 - ((gameTime - planet.quasarFireTime) / 500);
+                        ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`;
+                        ctx.lineWidth = 4 / this.gameEngine.camera.zoom;
+                        ctx.lineCap = 'round';
+                        ctx.shadowColor = '#00FFFF';
+                        ctx.shadowBlur = 15;
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            });
+
+            // --- Genesis Torpedo Effect ---
+            if (system.genesisEffect && (gameTime - system.genesisEffect.startTime) < system.genesisEffect.duration) {
+                const effect = system.genesisEffect;
+                const progress = (gameTime - effect.startTime) / effect.duration;
+
+                // Find the planet's position
+                const planetIndex = system.planets.findIndex(p => p.id === effect.planetId);
+                if (planetIndex !== -1) {
+                    // This is the same logic as in drawPlanetMini
+                    const r = system.r;
+                    const orbitBase = r + 10;
+                    const planetGap = 8;
+                    
+                    const angle = (gameTime / 10000 + planetIndex) % (Math.PI * 2);
+                    const semiMajor = orbitBase + (planetIndex * planetGap);
+                    const semiMinor = semiMajor * 0.65;
+                    const tilt = ((system.x + system.y) % 360) * (Math.PI / 180);
+
+                    const ux = Math.cos(angle) * semiMajor;
+                    const uy = Math.sin(angle) * semiMinor;
+
+                    const px = system.x + (ux * Math.cos(tilt) - uy * Math.sin(tilt));
+                    const py = system.y + (ux * Math.sin(tilt) + uy * Math.cos(tilt));
+
+                    // Draw the effect
+                    ctx.save();
+                    
+                    // Expanding shockwave
+                    const shockwaveRadius = 150 * progress;
+                    const shockwaveAlpha = 1 - progress;
+                    ctx.strokeStyle = `rgba(174, 225, 249, ${shockwaveAlpha})`;
+                    ctx.lineWidth = (3 / this.gameEngine.camera.zoom) * (1 - progress);
+                    ctx.beginPath();
+                    ctx.arc(px, py, shockwaveRadius, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    // Central flash
+                    const flashRadius = 30 * (1 - progress);
+                    const flashAlpha = 1 - (progress * progress);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+                    ctx.shadowColor = '#aee1f9';
+                    ctx.shadowBlur = 30;
+                    ctx.beginPath();
+                    ctx.arc(px, py, flashRadius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+            } else if (system.genesisEffect) {
+                // Clean up old effect
+                delete system.genesisEffect;
+            }
+        });
     }
 
     drawDebris(ctx, debris) {

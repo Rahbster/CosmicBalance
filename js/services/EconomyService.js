@@ -855,6 +855,50 @@ export class EconomyService {
         }
     }
 
+    requestGenesisTorpedo(shipId) {
+        const request = {
+            type: 'GAME_REQUEST_GENESIS_TORPEDO',
+            senderId: this.engine.getIdentity().guid,
+            shipId: shipId
+        };
+        if (this.engine.isHost) this.handleGenesisTorpedoRequest(request);
+        else this.engine.broadcast(request);
+    }
+
+    handleGenesisTorpedoRequest({ senderId, shipId }) {
+        if (!this.engine.isHost) return;
+        const ship = this.engine.state.ships.find(s => s.id === shipId);
+        if (!ship || ship.owner !== senderId) return;
+
+        const system = this.engine.spatialService.getCurrentSystem(ship);
+        if (!system) {
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'Must be in a system to use Genesis Torpedo.', toastType: 'warning' });
+            return;
+        }
+
+        const player = this.engine.state.players.find(p => p.id === senderId);
+        const cost = { IO: 2000, energy: 500 };
+
+        if (player.resources.IO >= cost.IO && player.resources.energy >= cost.energy) {
+            player.resources.IO -= cost.IO;
+            player.resources.energy -= cost.energy;
+
+            const newPlanetIndex = system.planets ? system.planets.length : 0;
+            const newPlanet = this.engine.galaxyService.generateRandomPlanet(system.id, newPlanetIndex);
+            const effect = {
+                planetId: newPlanet.id,
+                startTime: this.engine.state.gameTime,
+                duration: 2000 // 2 seconds
+            };
+            
+            this.engine.broadcast({ type: 'GAME_PLAYER_UPDATE', playerId: player.id, resources: player.resources });
+            this.engine.broadcast({ type: 'GAME_PLANET_CREATED', systemId: system.id, planet: newPlanet, genesisEffect: effect });
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: 'Genesis Torpedo Detonated! New planet created.', toastType: 'success' });
+        } else {
+            this.engine.broadcast({ type: 'GAME_TOAST', playerId: senderId, message: `Insufficient resources. Need ${cost.IO} IO, ${cost.energy} Energy.`, toastType: 'error' });
+        }
+    }
+
     requestToggleCloak(shipId) {
          const request = {
             type: 'GAME_REQUEST_TOGGLE_CLOAK',

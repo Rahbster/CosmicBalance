@@ -194,6 +194,11 @@ export class SelectionManager {
                 }
             }
 
+            // Genesis Torpedo (Cruisers only)
+            if (ship.type === 'Cruiser' && currentSystem) {
+                actionsHtml += `<button data-action="genesis-torpedo" data-ship-id="${ship.id}" title="Cost: 2000 IO, 500 Energy">Genesis Torpedo</button>`;
+            }
+
             // Mine Layer Capability (Generic for now, or check ship type)
             actionsHtml += `<button data-action="deploy-mine" data-ship-id="${ship.id}" title="Cost: 50 Scrap, 20 Energy">Deploy Mine</button>`;
 
