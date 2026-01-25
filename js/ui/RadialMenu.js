@@ -77,6 +77,10 @@ export class RadialMenu {
         
         const containerToRemove = this.container;
         if (containerToRemove) {
+            if (this.navigator) {
+                this.navigator.destroy();
+                this.navigator = null;
+            }
             this.container = null; // Clear reference immediately
             this.navigator = null;
             if (containerToRemove.parentNode) containerToRemove.remove();

@@ -1,4 +1,5 @@
 import { SHIP_STATE } from '../cb_constants.js';
+import { handleCombatStart } from '../modals/TacticalCombat.js';
 
 export class GameMessageHandler {
     constructor(engine) {
@@ -193,6 +194,8 @@ export class GameMessageHandler {
                     window.toastManager.show(data.message, data.toastType || 'info');
                 }
             }
+        } else if (data.type === 'combat-start') {
+            handleCombatStart(data, this.engine.getIdentity().guid);
         }
     }
 }

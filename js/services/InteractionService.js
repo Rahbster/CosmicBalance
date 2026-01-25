@@ -237,7 +237,7 @@ export class InteractionService {
                 }
             }
 
-            this.engine.isAnimating = false; // Stop any ongoing animation if user starts panning
+            this.engine.camera.stopAnimation(true); // Stop animation but trigger callback to ensure game flow continues
             this.isPanning = true;
             this.panStart = { x: this.engine.camera.pan.x, y: this.engine.camera.pan.y };
             this.mouseStart = { x: e.clientX, y: e.clientY };

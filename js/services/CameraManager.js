@@ -9,13 +9,22 @@ export class CameraManager {
         this.isAnimating = false;
         this.animationStartTime = 0;
         this.animationDuration = 700; // ms
+        this.onAnimationComplete = null;
         this.panStart = { x: 0, y: 0 };
         this.panEnd = { x: 0, y: 0 };
         this.zoomStart = 1;
         this.zoomEnd = 1;
     }
 
-    centerOn(worldX, worldY, targetZoom) {
+    stopAnimation(triggerCallback = true) {
+        this.isAnimating = false;
+        if (triggerCallback && this.onAnimationComplete) {
+            this.onAnimationComplete();
+            this.onAnimationComplete = null;
+        }
+    }
+
+    centerOn(worldX, worldY, targetZoom, duration = 700, onComplete = null) {
         // Stop any manual panning by the user
         if (this.engine.interactionService) {
             this.engine.interactionService.isPanning = false;
@@ -38,6 +47,8 @@ export class CameraManager {
         this.panEnd = this._getConstrainedPan(idealPanEnd, finalZoom);
         this.zoomEnd = finalZoom;
         
+        this.animationDuration = duration;
+        this.onAnimationComplete = onComplete;
         this.isAnimating = true;
         this.animationStartTime = performance.now();
     }
@@ -60,12 +71,17 @@ export class CameraManager {
             this.isAnimating = false;
             // Apply constraints only at the end of the animation
             this.constrainPanAndZoom();
+            if (this.onAnimationComplete) {
+                const callback = this.onAnimationComplete;
+                this.onAnimationComplete = null;
+                callback();
+            }
         }
     }
 
-    constrainPanAndZoom() {
+    getMinZoom() {
         const allSystems = this.engine.state.systems;
-        if (allSystems.length === 0) return;
+        if (allSystems.length === 0) return 0.1;
 
         const padding = 100;
         // Use effective radius for a more accurate bounding box
@@ -79,7 +95,11 @@ export class CameraManager {
 
         const minZoomX = this.canvas.width / contentWidth;
         const minZoomY = this.canvas.height / contentHeight;
-        const minZoom = Math.min(minZoomX, minZoomY, 1);
+        return Math.min(minZoomX, minZoomY, 1);
+    }
+
+    constrainPanAndZoom() {
+        const minZoom = this.getMinZoom();
         this.zoom = Math.max(this.zoom, minZoom);
 
         const constrained = this._getConstrainedPan(this.pan, this.zoom);

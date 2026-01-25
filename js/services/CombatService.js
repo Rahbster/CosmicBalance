@@ -1,4 +1,6 @@
 import { PLANET_NAMES, SHIP_DATA } from './GalaxyService.js';
+import { startTacticalCombat } from '../modals/TacticalCombat.js';
+import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 
 export class CombatService {
     constructor(engine) {
@@ -42,7 +44,12 @@ export class CombatService {
         // Optimization: Iterate ships once instead of (Systems * Ships)
         // Use cached currentSystemId to quickly bucket ships
         this.engine.state.ships.forEach(ship => {
-            if (ship.scoutMission || ship.isBuilding) return; // Skip non-combatants
+            // Skip non-combatants, dead ships, and ships that just fought (5s cooldown)
+            if (ship.scoutMission || ship.isBuilding || ship.hull <= 0) return;
+            if (ship.lastCombatTime && (this.engine.state.gameTime - ship.lastCombatTime < 10000)) {
+                // this.engine.loggingService.log(LOG_CATEGORIES.COMBAT, LOG_LEVELS.TRACE, `Skipping ship ${ship.id} due to combat cooldown.`);
+                return;
+            }
 
             if (ship.currentSystemId) {
                 const sys = systemMap.get(ship.currentSystemId);
@@ -72,6 +79,22 @@ export class CombatService {
 
             const teamsPresent = [...new Set(ships.map(s => s.team))];
             if (teamsPresent.length > 1) { // If contested
+                
+                // --- Watch Battles Logic ---
+                if (this.engine.watchBattles && this.engine.isHost && !this.engine.paused) {
+                    // Pause strategic game
+                    this.engine.togglePause();
+                    
+                    // Launch Tactical Combat
+                    const system = systemMap.get(planetId); // planetId is systemId in this map context
+                    // Mark ships as having fought to prevent immediate re-entry
+                    this.engine.loggingService.log(LOG_CATEGORIES.COMBAT, LOG_LEVELS.DEBUG, `Marking ${ships.length} ships in ${system.name} with combat cooldown.`);
+                    ships.forEach(s => s.lastCombatTime = this.engine.state.gameTime);
+                    
+                    startTacticalCombat(system, ships, this.engine.getIdentity().guid);
+                    return; // Stop processing strategic combat for this frame
+                }
+
                 ships.forEach(attacker => {
                     // Optimization: Only attack if we have damage to deal
                     if (attacker.damage > 0) {

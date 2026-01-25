@@ -2,6 +2,8 @@ export class StorageService {
     constructor() {
         this.appPrefix = 'pwa';
         this.gamePrefix = 'cosmic_balance';
+        this.lastSaveErrorTime = 0;
+        this.saveErrorCooldown = 30000; // 30 seconds cooldown on error
     }
 
     // --- Generic Helpers ---
@@ -42,13 +44,27 @@ export class StorageService {
     }
 
     saveGameState(state) {
+        // Prevent spamming if we are in a quota exceeded state
+        if (Date.now() - this.lastSaveErrorTime < this.saveErrorCooldown) {
+            return false;
+        }
+
         // Try to save. If it fails due to quota, try to clear reports first.
         if (!this.setItem(`${this.gamePrefix}_gamestate`, state)) {
             console.warn("[StorageService] Save failed. Attempting cleanup...");
             this.removeItem(`${this.gamePrefix}_reports`);
+            
+            // Aggressive cleanup: Remove combat logs from state copy
+            const slimState = { ...state };
+            if (slimState.combatLogHistory) {
+                delete slimState.combatLogHistory;
+                console.warn("[StorageService] Removing combat logs to save space.");
+            }
+
             // Try again
-            if (!this.setItem(`${this.gamePrefix}_gamestate`, state)) {
+            if (!this.setItem(`${this.gamePrefix}_gamestate`, slimState)) {
                 console.error("[StorageService] CRITICAL: Save failed even after cleanup.");
+                this.lastSaveErrorTime = Date.now();
                 return false;
             }
         }

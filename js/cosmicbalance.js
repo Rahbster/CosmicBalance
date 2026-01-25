@@ -6,11 +6,14 @@ import { createTimerHTML, showToast } from './ui.js';
 import { startTimer, stopTimer } from './timer.js';
 import { loadDesignsFromStorage, showShipDesigner } from './modals/ShipDesignerModal.js';
 import { showAboutModal } from './modals/AboutModal.js';
+import { CombatLogModal } from './modals/CombatLogModal.js';
 import { startCombat } from './features/TacticalCombat.js';
 import { HULLS, COMPONENTS, DEFAULT_SHIP_DESIGNS, MAP_WIDTH, MAP_HEIGHT } from './cb_constants.js';
 
 const NUM_SYSTEMS = 50;
 const MIN_STAR_DISTANCE = 80;
+
+let combatLogModal = null;
 
 export function initialize() {
     // Set the button text and ensure it's visible for the host
@@ -80,6 +83,16 @@ export function createGrid() {
     designerButton.style.flex = '1';
     designerButton.onclick = showShipDesigner;
     buttonContainer.appendChild(designerButton);
+
+    const logButton = document.createElement('button');
+    logButton.textContent = 'Combat Log';
+    logButton.className = 'theme-button';
+    logButton.style.flex = '1';
+    logButton.onclick = () => {
+        if (!combatLogModal) combatLogModal = new CombatLogModal();
+        combatLogModal.show(appState.soloGameState.combatLogHistory, appState.soloGameState.systems);
+    };
+    buttonContainer.appendChild(logButton);
 
     const aboutButton = document.createElement('button');
     aboutButton.textContent = 'About';

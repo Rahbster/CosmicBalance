@@ -37,6 +37,14 @@ export class GameEngine {
             players: [],
             debrisFields: [],
             gameTime: 0,
+            combat: {
+                active: false,
+                ships: [],
+                projectiles: [],
+                turn: 0,
+                nextProjectileId: 0,
+                effects: []
+            }
         };
 
         // Try to load state from localStorage
@@ -55,6 +63,17 @@ export class GameEngine {
             console.log("[GameEngine] Found saved game state.");
             try {
                 this.state = loadedState;
+                // Ensure combat state exists for legacy saves
+                if (!this.state.combat) {
+                    this.state.combat = {
+                        active: false,
+                        ships: [],
+                        projectiles: [],
+                        turn: 0,
+                        nextProjectileId: 0,
+                        effects: []
+                    };
+                }
                 // Explicitly set the engine's paused status from the loaded state.
                 this.paused = loadedState.paused || false;
                 this.timeScale = loadedState.timeScale || 1.0;
@@ -93,7 +112,7 @@ export class GameEngine {
         this.uiUpdateTimer = 0;
         this.uiUpdateInterval = 500; // Update UI twice a second
         this.saveStateTimer = 0;
-        this.saveStateInterval = 5000; // Save state every 5 seconds
+        this.saveStateInterval = 10000; // Save state every 10 seconds
         this.aiDebugMode = false;
         
         this.reportHistory = this.storageService ? this.storageService.getReports() : [];
@@ -113,6 +132,7 @@ export class GameEngine {
             faction: this.profileService.getTeam(), // The faction to view as, defaults to own team
             selectedPlayerIds: []
         };
+        this.watchBattles = false; // Flag to trigger tactical view for battles
     }
 
     getIdentity() {
@@ -136,6 +156,12 @@ export class GameEngine {
         console.log(`[GameEngine] togglePause called. Current: ${this.paused}, New: ${!this.paused}`);
         this.paused = !this.paused;
         this.broadcast({ type: 'GAME_SET_PAUSE', paused: this.paused });
+    }
+
+    resumeFromCombat() {
+        this.paused = false;
+        this.broadcast({ type: 'GAME_SET_PAUSE', paused: false });
+        this.loggingService.log(LOG_CATEGORIES.COMBAT, LOG_LEVELS.INFO, "Strategic execution resumed after tactical combat.");
     }
 
     setGameSpeed(speed) {
@@ -483,6 +509,10 @@ export class GameEngine {
                 this.autoReportTimer = 0;
                 const report = this.generateAIReport();
                 this.reportHistory.push(report);
+                // Limit history to last 50 entries to save memory/storage
+                if (this.reportHistory.length > 50) {
+                    this.reportHistory.shift();
+                }
                 this.loggingService.log(LOG_CATEGORIES.AI, LOG_LEVELS.INFO, `Auto-generated AI Report #${this.reportHistory.length}`);
             }
 

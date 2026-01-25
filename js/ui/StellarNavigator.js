@@ -6,7 +6,7 @@ export class StellarNavigator {
         this.controls = controls;
         this.options = options;
         this.slideCount = slides.length;
-        this.activeIdx = 0;
+        this.activeIdx = options.startIdx || 0;
         
         const defaultStep = 360 / (this.slideCount || 1);
         this.angleStep = (this.options.maxAngleStep) 
@@ -191,5 +191,12 @@ export class StellarNavigator {
     prev() {
         this.activeIdx = (this.activeIdx - 1 + this.slideCount) % this.slideCount;
         this.update();
+    }
+
+    destroy() {
+        if (this.dragging) {
+            document.removeEventListener("mousemove", this.handleMouseMoveBound);
+            document.removeEventListener("mouseup", this.handleMouseUpBound);
+        }
     }
 }

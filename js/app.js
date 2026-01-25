@@ -16,6 +16,8 @@ import { ProfileService } from './services/ProfileService.js';
 import { StorageService } from './services/StorageService.js';
 import { GameStatusModal } from './modals/GameStatusModal.js';
 import { ShipDesignerModal } from './modals/ShipDesignerModal.js';
+import { initTacticalCombat } from './modals/TacticalCombat.js';
+import { CombatLogModal } from './modals/CombatLogModal.js';
 
 let gameEngine = null;
 const storageService = new StorageService();
@@ -69,6 +71,7 @@ let fleetManagerModal = null;
 let loggingModal = null;
 let gameStatusModal = null;
 let shipDesignerModal = null;
+let combatLogModal = null;
 const radialMenu = new RadialMenu();
 
 let colorPicker = null;
@@ -132,7 +135,7 @@ peerManager.onMessage((data) => {
         if (gameEngine && gameEngine.isHost) {
             gameEngine.addPlayer(data.guid, data.name, data.role);
         }
-    } else if (data.type.startsWith('GAME_')) {
+    } else if (data.type.startsWith('GAME_') || data.type === 'combat-start') {
         // Pass game events to engine
         if (gameEngine) {
             gameEngine.handlePeerMessage(data);
@@ -283,7 +286,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const openNav = () => { if(sidenav) sidenav.style.width = "280px"; if(overlay) overlay.style.display = "block"; };
     const closeNav = () => { if(sidenav) sidenav.style.width = "0"; if(overlay) overlay.style.display = "none"; };
 
-    if (hamburgerBtn) hamburgerBtn.addEventListener('click', openNav);
+    if (hamburgerBtn) {
+        document.body.appendChild(hamburgerBtn);
+        hamburgerBtn.addEventListener('click', openNav);
+    }
     if (closeSidenavBtn) closeSidenavBtn.addEventListener('click', closeNav);
     if (overlay) overlay.addEventListener('click', closeNav);
 
@@ -293,6 +299,16 @@ document.addEventListener('DOMContentLoaded', () => {
         body.fullscreen-mode #ship-designer-btn-main,
         body.fullscreen-mode #btn-open-ship-designer { display: none !important; }
         body.fullscreen-mode #about-btn-main { display: none !important; }
+        #hamburger-btn {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 2000;
+            display: none;
+        }
+        body.fullscreen-mode #hamburger-btn {
+            display: block;
+        }
     `;
     document.head.appendChild(uiStyle);
 
@@ -454,9 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hideHeaderHandle = document.getElementById('hide-header-handle');
     const showHeaderHandle = document.getElementById('show-header-handle');
     if (hideHeaderHandle && showHeaderHandle) {
-        hideHeaderHandle.addEventListener('click', () => {
-            document.body.classList.add('fullscreen-mode');
-        });
+        hideHeaderHandle.style.display = 'none';
         showHeaderHandle.addEventListener('click', () => {
             document.body.classList.remove('fullscreen-mode');
         });
@@ -481,12 +495,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("[App] Initializing GameEngine...");
         gameEngine = new GameEngine(gameCanvas, peerManager, profileService, loggingService, storageService);
         uiManager.gameEngine = gameEngine; // Link engine to UI manager
+        initTacticalCombat(gameEngine); // Initialize Tactical Combat with engine
         uiManager.colorPicker = document.getElementById('faction-color-picker'); // Re-bind element
         techTreeModal = new TechTreeModal(gameEngine, () => profileService.getTeam());
         fleetManagerModal = new FleetManagerModal(gameEngine);
         loggingModal = new LoggingModal(gameEngine);
         gameStatusModal = new GameStatusModal(gameEngine);
         shipDesignerModal = new ShipDesignerModal(gameEngine);
+        combatLogModal = new CombatLogModal();
         
         // Wire up live updates for Game Status Modal
         
@@ -519,6 +535,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.dispatchEvent(new Event('resize'));
             }
         });
+
+        // Inject Combat Controls (Log & Watch Toggle)
+        const hostControls = document.getElementById('host-view-controls');
+        if (hostControls) {
+            const combatControls = document.createElement('div');
+            combatControls.style.display = 'flex';
+            combatControls.style.gap = '10px';
+            combatControls.style.alignItems = 'center';
+            combatControls.style.marginTop = '5px';
+            
+            const btnLog = document.createElement('button');
+            btnLog.textContent = 'Combat Log';
+            btnLog.className = 'theme-button small';
+            btnLog.onclick = () => {
+                if (gameEngine && gameEngine.state.combatLogHistory) {
+                    combatLogModal.show(gameEngine.state.combatLogHistory, gameEngine.state.systems);
+                } else {
+                    toastManager.show('No combat history available.', 'info');
+                }
+            };
+
+            const lblWatch = document.createElement('label');
+            lblWatch.style.display = 'flex';
+            lblWatch.style.alignItems = 'center';
+            lblWatch.style.gap = '5px';
+            lblWatch.style.fontSize = '0.9em';
+            lblWatch.innerHTML = `<input type="checkbox" id="chk-watch-battles"> Watch Battles`;
+            
+            combatControls.appendChild(btnLog);
+            combatControls.appendChild(lblWatch);
+            hostControls.appendChild(combatControls);
+
+            document.getElementById('chk-watch-battles').addEventListener('change', (e) => {
+                if (gameEngine) gameEngine.watchBattles = e.target.checked;
+            });
+        }
 
         gameEngine.start();
         updateHeaderControls();

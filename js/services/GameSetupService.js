@@ -103,6 +103,15 @@ export class GameSetupService {
             resourceRate: resourceRate || 1.0,
             shipSpeedRate: shipSpeedRate || 1.0
         };
+        
+        this.engine.state.combat = {
+            active: false,
+            ships: [],
+            projectiles: [],
+            turn: 0,
+            nextProjectileId: 0,
+            effects: []
+        };
 
         await this.engine.techService.loadTechData(); 
         await this.engine.spriteService.loadSprites(); 
