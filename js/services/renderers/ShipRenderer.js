@@ -53,22 +53,25 @@ export class ShipRenderer {
         // --- Visual Effects: Thrusters (Sublight) ---
         if (firstShip.arrivalPoint && !firstShip.targetId) {
              this.ctx.save();
-             const thrustLength = 15 + Math.random() * 5;
+             const thrustLength = 38 + Math.random() * 10; // Increased length to account for centering
              const thrustWidth = 8;
+             const startY = 0; // Start from center to avoid gap
              
-             this.ctx.fillStyle = '#FF4500';
-             this.ctx.globalAlpha = 0.8;
+             // Use additive blending for a glowing effect
+             this.ctx.globalCompositeOperation = 'lighter';
+
+             // Gradient: White/Yellow Core -> Orange -> Transparent Red
+             const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
+             grad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
+             grad.addColorStop(0.2, 'rgba(255, 200, 0, 0.8)');
+             grad.addColorStop(0.6, 'rgba(255, 69, 0, 0.4)');
+             grad.addColorStop(1, 'rgba(100, 0, 0, 0)');
+
+             this.ctx.fillStyle = grad;
              this.ctx.beginPath();
-             this.ctx.moveTo(-thrustWidth/2, 18);
-             this.ctx.lineTo(0, 18 + thrustLength);
-             this.ctx.lineTo(thrustWidth/2, 18);
-             this.ctx.fill();
-             
-             this.ctx.fillStyle = '#FFFF00';
-             this.ctx.beginPath();
-             this.ctx.moveTo(-thrustWidth/4, 18);
-             this.ctx.lineTo(0, 18 + thrustLength * 0.6);
-             this.ctx.lineTo(thrustWidth/4, 18);
+             this.ctx.moveTo(-thrustWidth/2, startY);
+             this.ctx.lineTo(0, startY + thrustLength);
+             this.ctx.lineTo(thrustWidth/2, startY);
              this.ctx.fill();
              this.ctx.restore();
         }
@@ -201,11 +204,19 @@ export class ShipRenderer {
         // --- Visual Effects: Thrusters (Sublight) ---
         if (ship.arrivalPoint && !ship.targetId) {
             this.ctx.save();
-            const thrustLength = h * 0.5 + Math.random() * (h * 0.2);
+            const startY = 0; // Start from center to avoid gap
+            const thrustLength = radius + (h * 0.5) + Math.random() * (h * 0.3); // Extend length to clear hull
             const thrustWidth = w * 0.4;
-            this.ctx.fillStyle = '#FF4500'; this.ctx.globalAlpha = 0.8;
-            this.ctx.beginPath(); this.ctx.moveTo(-thrustWidth / 2, radius - 4); this.ctx.lineTo(0, radius + thrustLength); this.ctx.lineTo(thrustWidth / 2, radius - 4); this.ctx.fill();
-            this.ctx.fillStyle = '#FFFF00'; this.ctx.beginPath(); this.ctx.moveTo(-thrustWidth / 4, radius - 4); this.ctx.lineTo(0, radius + thrustLength * 0.6); this.ctx.lineTo(thrustWidth / 4, radius - 4); this.ctx.fill();
+
+            this.ctx.globalCompositeOperation = 'lighter';
+            const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
+            grad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
+            grad.addColorStop(0.2, 'rgba(255, 200, 0, 0.8)');
+            grad.addColorStop(0.6, 'rgba(255, 69, 0, 0.4)');
+            grad.addColorStop(1, 'rgba(100, 0, 0, 0)');
+
+            this.ctx.fillStyle = grad;
+            this.ctx.beginPath(); this.ctx.moveTo(-thrustWidth / 2, startY); this.ctx.lineTo(0, startY + thrustLength); this.ctx.lineTo(thrustWidth / 2, startY); this.ctx.fill();
             this.ctx.restore();
         }
 
@@ -296,15 +307,21 @@ export class ShipRenderer {
         // --- Visual Effects: Thrusters (Sublight) ---
         if (ship.arrivalPoint && !ship.targetId && !ship.isStation) {
              this.ctx.save();
-             const thrustLength = 15 + Math.random() * 5;
+             const thrustLength = 23 + Math.random() * 8; // Increased length
              const thrustWidth = 6;
+             const startY = 0; // Start from center
              
-             this.ctx.fillStyle = '#FF4500';
-             this.ctx.globalAlpha = 0.8;
+             this.ctx.globalCompositeOperation = 'lighter';
+             const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
+             grad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
+             grad.addColorStop(0.3, 'rgba(255, 140, 0, 0.7)');
+             grad.addColorStop(1, 'rgba(255, 0, 0, 0)');
+
+             this.ctx.fillStyle = grad;
              this.ctx.beginPath();
-             this.ctx.moveTo(-thrustWidth/2, 5);
-             this.ctx.lineTo(0, 5 + thrustLength);
-             this.ctx.lineTo(thrustWidth/2, 5);
+             this.ctx.moveTo(-thrustWidth/2, startY);
+             this.ctx.lineTo(0, startY + thrustLength);
+             this.ctx.lineTo(thrustWidth/2, startY);
              this.ctx.fill();
              this.ctx.restore();
         }
