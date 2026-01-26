@@ -435,4 +435,124 @@ export class ShipRenderer {
 
         this.ctx.restore();
     }
+
+    drawFleetComposition(fleetId, ships) {
+        const zoom = this.engine.camera.zoom;
+        if (zoom < 0.8) return; // Only show when zoomed in
+
+        // Calculate centroid
+        let totalX = 0;
+        let totalY = 0;
+        ships.forEach(s => {
+            totalX += s.x;
+            totalY += s.y;
+        });
+        const cx = totalX / ships.length;
+        const cy = totalY / ships.length;
+
+        // Group ships by type
+        const counts = {};
+        ships.forEach(s => {
+            counts[s.type] = (counts[s.type] || 0) + 1;
+        });
+
+        // Sort types
+        const types = Object.keys(counts).sort();
+
+        // Layout configuration
+        const fontSize = Math.max(12, 8 / zoom);
+        const lineHeight = fontSize * 1.2;
+        const padding = Math.max(6, 4 / zoom);
+        const colGap = Math.max(8, 5 / zoom);
+        
+        this.ctx.font = `${fontSize}px monospace`;
+        let maxCountWidth = 0;
+        let maxTypeWidth = 0;
+        types.forEach(type => {
+            const cWidth = this.ctx.measureText(`${counts[type]}x`).width;
+            const tWidth = this.ctx.measureText(type).width;
+            if (cWidth > maxCountWidth) maxCountWidth = cWidth;
+            if (tWidth > maxTypeWidth) maxTypeWidth = tWidth;
+        });
+        
+        const contentWidth = maxCountWidth + colGap + maxTypeWidth;
+        const boxWidth = padding * 2 + contentWidth;
+        const boxHeight = (padding * 2) + (types.length * lineHeight);
+        
+        // Position bubble (Centered below fleet)
+        const offset = 40 + (20 / zoom);
+        const boxX = cx - (boxWidth / 2);
+        const boxY = cy + offset;
+
+        this.ctx.save();
+        
+        // Fade in based on zoom (0.8 to 1.0)
+        this.ctx.globalAlpha = Math.min(1.0, (zoom - 0.8) * 5);
+        
+        // Draw connecting line
+        this.ctx.beginPath();
+        this.ctx.moveTo(cx, cy);
+        this.ctx.lineTo(cx, boxY);
+        this.ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+        this.ctx.lineWidth = 1 / zoom;
+        this.ctx.stroke();
+
+        // Pulsing Glow
+        const time = this.engine.state.gameTime || 0;
+        const pulse = (Math.sin(time / 800) + 1) / 2; 
+        this.ctx.shadowColor = `rgba(0, 190, 255, ${0.3 + pulse * 0.3})`;
+        this.ctx.shadowBlur = 10 / zoom;
+
+        // Draw Forerunner-style background
+        const chamfer = 8 / zoom;
+        
+        this.ctx.beginPath();
+        this.ctx.moveTo(boxX + chamfer, boxY);
+        this.ctx.lineTo(boxX + boxWidth - chamfer, boxY);
+        this.ctx.lineTo(boxX + boxWidth, boxY + chamfer);
+        this.ctx.lineTo(boxX + boxWidth, boxY + boxHeight - chamfer);
+        this.ctx.lineTo(boxX + boxWidth - chamfer, boxY + boxHeight);
+        this.ctx.lineTo(boxX + chamfer, boxY + boxHeight);
+        this.ctx.lineTo(boxX, boxY + boxHeight - chamfer);
+        this.ctx.lineTo(boxX, boxY + chamfer);
+        this.ctx.closePath();
+
+        const bgGrad = this.ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight);
+        bgGrad.addColorStop(0, 'rgba(0, 20, 40, 0.9)');
+        bgGrad.addColorStop(1, 'rgba(0, 10, 20, 0.95)');
+        this.ctx.fillStyle = bgGrad;
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = 'rgba(100, 200, 255, 0.5)';
+        this.ctx.lineWidth = 1 / zoom;
+        this.ctx.stroke();
+
+        // Corner Accents
+        this.ctx.strokeStyle = 'rgba(100, 220, 255, 0.9)';
+        this.ctx.lineWidth = 2 / zoom;
+        this.ctx.beginPath();
+        this.ctx.moveTo(boxX, boxY + chamfer * 2); this.ctx.lineTo(boxX, boxY + chamfer); this.ctx.lineTo(boxX + chamfer, boxY); this.ctx.lineTo(boxX + chamfer * 2, boxY);
+        this.ctx.moveTo(boxX + boxWidth, boxY + boxHeight - chamfer * 2); this.ctx.lineTo(boxX + boxWidth, boxY + boxHeight - chamfer); this.ctx.lineTo(boxX + boxWidth - chamfer, boxY + boxHeight); this.ctx.lineTo(boxX + boxWidth - chamfer * 2, boxY + boxHeight);
+        this.ctx.stroke();
+
+        // Reset Shadow
+        this.ctx.shadowBlur = 0;
+
+        // Draw Content
+        this.ctx.fillStyle = '#FFFFFF';
+        this.ctx.textBaseline = 'top';
+        const contentStartY = boxY + padding;
+        const blockX = boxX + padding;
+
+        types.forEach((type, i) => {
+            const y = contentStartY + (i * lineHeight);
+            
+            this.ctx.textAlign = 'right';
+            this.ctx.fillText(`${counts[type]}x`, blockX + maxCountWidth, y);
+            
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText(type, blockX + maxCountWidth + colGap, y);
+        });
+        this.ctx.restore();
+    }
 }
