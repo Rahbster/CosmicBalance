@@ -349,9 +349,9 @@ export class SystemRenderer {
             );
             // Transparent near the light source, darkens as it goes away
             shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-            shadowGradient.addColorStop(0.4, 'rgba(0, 0, 0, 0.1)'); // Start of terminator
-            shadowGradient.addColorStop(0.7, 'rgba(0, 0, 0, 0.6)'); // Deep shadow
-            shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0.95)'); // Backside
+            shadowGradient.addColorStop(0.4, 'rgba(0, 0, 0, 0.1)');
+            shadowGradient.addColorStop(0.7, 'rgba(0, 0, 0, 0.6)');
+            shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
 
             this.ctx.fillStyle = shadowGradient;
             
@@ -362,15 +362,15 @@ export class SystemRenderer {
 
             // 2. Specular Highlight (Hotspot facing the star)
             const specGradient = this.ctx.createRadialGradient(
-                0, -finalRadius * 0.4, 0,
-                0, -finalRadius * 0.4, finalRadius * 0.5
+                0, -finalRadius * 0.5, 0,
+                0, -finalRadius * 0.5, finalRadius * 0.6
             );
-            specGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+            specGradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
             specGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
             
             this.ctx.fillStyle = specGradient;
             this.ctx.beginPath();
-            this.ctx.arc(0, -finalRadius * 0.4, finalRadius * 0.5, 0, Math.PI * 2);
+            this.ctx.arc(0, -finalRadius * 0.5, finalRadius * 0.6, 0, Math.PI * 2);
             this.ctx.fill();
         }
 
