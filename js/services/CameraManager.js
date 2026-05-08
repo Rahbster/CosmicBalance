@@ -83,7 +83,7 @@ export class CameraManager {
         const allSystems = this.engine.state.systems;
         if (allSystems.length === 0) return 0.1;
 
-        const padding = 100;
+        const padding = 200;
         // Use effective radius for a more accurate bounding box
         const minX = Math.min(...allSystems.map(s => s.x - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
         const maxX = Math.max(...allSystems.map(s => s.x + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
@@ -111,22 +111,24 @@ export class CameraManager {
         const allSystems = this.engine.state.systems;
         if (allSystems.length === 0) return pan;
 
-        const padding = 100;
+        const padding = 200; // Increased padding for planets
         const minX = Math.min(...allSystems.map(s => s.x - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
         const maxX = Math.max(...allSystems.map(s => s.x + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
         const minY = Math.min(...allSystems.map(s => s.y - this.engine.spatialService.getSystemEffectiveRadius(s))) - padding;
         const maxY = Math.max(...allSystems.map(s => s.y + this.engine.spatialService.getSystemEffectiveRadius(s))) + padding;
 
-        // Calculate the two potential boundary points for the pan.
-        const boundX1 = this.canvas.width - (maxX * zoom);
-        const boundX2 = -(minX * zoom);
-        const boundY1 = this.canvas.height - (maxY * zoom);
-        const boundY2 = -(minY * zoom);
+        // Calculate boundaries that allow the center of the viewport to reach any part of the world
+        const centerX = this.canvas.width / 2;
+        const centerY = this.canvas.height / 2;
+
+        const boundX1 = centerX - (maxX * zoom);
+        const boundX2 = centerX - (minX * zoom);
+        const boundY1 = centerY - (maxY * zoom);
+        const boundY2 = centerY - (minY * zoom);
 
         const newPan = { x: pan.x, y: pan.y };
 
-        // The valid range is always between the min and max of the two bounds.
-        // This standard clamp function works regardless of which bound is smaller.
+        // Clamp pan so the world center stays within the viewport's allowed range
         newPan.x = Math.max(Math.min(boundX1, boundX2), Math.min(pan.x, Math.max(boundX1, boundX2)));
         newPan.y = Math.max(Math.min(boundY1, boundY2), Math.min(pan.y, Math.max(boundY1, boundY2)));
 

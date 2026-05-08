@@ -53,11 +53,15 @@ export class RadialMenu {
         // Use a radius suitable for the menu
         const radius = customRadius || 140; 
         
-        this.navigator = new StellarNavigator(slides, carouselEl, null, controls, { radius: radius, maxAngleStep: 45 });
+        this.navigator = new StellarNavigator(slides, carouselEl, null, controls, { 
+            radius: radius, 
+            maxAngleStep: 45,
+            circular: true
+        });
 
         // Close menu on outside click, but allow click to pass through to canvas
         this._closeHandler = (e) => {
-            if (!e.target.closest('.carousel-slide') && !e.target.closest('.radial-menu-navigator-wrapper')) {
+            if (!e.target.closest('.stellar-slide') && !e.target.closest('.radial-menu-navigator-wrapper')) {
                 this.hide();
             }
         };
@@ -82,7 +86,6 @@ export class RadialMenu {
                 this.navigator = null;
             }
             this.container = null; // Clear reference immediately
-            this.navigator = null;
             if (containerToRemove.parentNode) containerToRemove.remove();
         }
     }
@@ -94,7 +97,7 @@ export class RadialMenu {
 
             :root {
                 --rm-glass-bg: rgba(20, 30, 50, 0.85);
-                --rm-glass-accent: #aee1f9;
+                --rm-glass-accent: #00f2ff;
                 --rm-cosmic-purple: #6c3fd1;
                 --rm-glow: 0 0 16px var(--rm-glass-accent), 0 0 32px var(--rm-cosmic-purple);
                 --rm-font: "Orbitron", Arial, sans-serif;
@@ -122,11 +125,11 @@ export class RadialMenu {
                 justify-content: center;
             }
 
-            #radial-menu-container .carousel-slide {
+            #radial-menu-container .stellar-slide {
                 position: absolute;
                 width: 110px; height: 90px;
                 background: var(--rm-glass-bg); 
-                border: 1px solid rgba(174, 225, 249, 0.3); 
+                border: 1px solid rgba(0, 242, 255, 0.3); 
                 border-radius: 12px;
                 box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
                 backdrop-filter: blur(5px);
@@ -143,21 +146,21 @@ export class RadialMenu {
                 backface-visibility: hidden;
             }
 
-            #radial-menu-container .carousel-slide.active {
+            #radial-menu-container .stellar-slide.active {
                 background: rgba(108, 63, 209, 0.7);
                 border-color: var(--rm-glass-accent);
                 box-shadow: var(--rm-glow);
                 z-index: 100;
-                transform: scale(1.1);
+                transform: scale(1.1) !important; /* Force scale on top of navigator transform if needed */
             }
 
-            #radial-menu-container .slide-icon { font-size: 1.8rem; margin-bottom: 5px; filter: drop-shadow(0 0 5px var(--rm-cosmic-purple)); }
-            #radial-menu-container .slide-title { font-size: 0.85rem; font-weight: bold; color: #fff; font-family: var(--rm-font); text-shadow: 0 0 5px var(--rm-cosmic-purple); }
-            #radial-menu-container .slide-desc { display: none; }
+            #radial-menu-container .stellar-slide-icon { font-size: 1.8rem; margin-bottom: 5px; filter: drop-shadow(0 0 5px var(--rm-cosmic-purple)); }
+            #radial-menu-container .stellar-slide-title { font-size: 0.85rem; font-weight: bold; color: #fff; font-family: var(--rm-font); text-shadow: 0 0 5px var(--rm-cosmic-purple); }
+            #radial-menu-container .stellar-slide-desc { display: none; }
         `;
         const style = document.createElement('style');
         style.id = 'radial-menu-css';
         style.textContent = css;
         document.head.appendChild(style);
     }
-}
+}

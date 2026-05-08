@@ -1,0 +1,35 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="hiFiRust" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.08" numOctaves="5" />
+      <feDiffuseLighting lighting-color="#ffaa00" surfaceScale="2" result="rust">
+        <feDistantLight azimuth="225" elevation="40" />
+      </feDiffuseLighting>
+      <feComposite in="rust" in2="SourceGraphic" operator="in" />
+      <feBlend in="SourceGraphic" in2="rust" mode="multiply" />
+    </filter>
+    
+    <clipPath id="pirateClip">
+      <path d="M64 10 L85 45 L110 110 L64 95 L18 110 L43 45 Z" />
+    </clipPath>
+  </defs>
+
+  <!-- Scavenged Hull Plating -->
+  <g filter="url(#hiFiRust)">
+    <path d="M64 10 L85 45 L110 110 L64 95 L18 110 L43 45 Z" fill="#2a2a2a" />
+    <!-- Mismatched Armor Slabs -->
+    <rect x="50" y="40" width="28" height="35" fill="#3a3a3a" stroke="#111" />
+    <rect x="35" y="75" width="20" height="20" fill="#4a2a1a" />
+    <rect x="73" y="75" width="20" height="20" fill="#4a2a1a" />
+  </g>
+
+  <!-- Exposed Machinery -->
+  <g stroke="#ff6600" stroke-width="1" opacity="0.6">
+    <path d="M64 95 V115" />
+    <path d="M40 45 L30 35 M88 45 L98 35" />
+  </g>
+
+  <!-- Flickering Core -->
+  <circle cx="64" cy="65" r="5" fill="#ff3300" />
+  <path d="M64 55 Q70 65 64 75 Q58 65 64 55" fill="rgba(255,100,0,0.3)" />
+</svg>

@@ -1,0 +1,62 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="hiFiMetal" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" />
+      <feDiffuseLighting lighting-color="#ffffff" surfaceScale="2">
+        <feDistantLight azimuth="45" elevation="55" />
+      </feDiffuseLighting>
+      <feComposite in2="SourceGraphic" operator="in" />
+    </filter>
+    
+    <!-- Ultra-Detailed Solar Grid -->
+    <pattern id="solarGrid" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
+      <rect width="10" height="10" fill="#001a33" stroke="#4488ff" stroke-width="0.5" />
+      <!-- Silicon Wafers -->
+      <rect x="1" y="1" width="3" height="3" fill="#003366" opacity="0.6" />
+      <rect x="6" y="1" width="3" height="3" fill="#003366" opacity="0.6" />
+      <rect x="1" y="6" width="3" height="3" fill="#003366" opacity="0.6" />
+      <rect x="6" y="6" width="3" height="3" fill="#003366" opacity="0.6" />
+      <path d="M0 5 H10 M5 0 V10" stroke="#004488" stroke-width="0.3" />
+    </pattern>
+
+    <linearGradient id="hullGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#99abbb" />
+      <stop offset="50%" style="stop-color:#667788" />
+      <stop offset="100%" style="stop-color:#334455" />
+    </linearGradient>
+    
+    <clipPath id="stationClip">
+      <rect x="58" y="10" width="12" height="108" rx="2" />
+      <rect x="42" y="44" width="44" height="40" rx="2" />
+    </clipPath>
+  </defs>
+
+  <!-- Central Spindle -->
+  <g filter="url(#hiFiMetal)">
+    <rect x="58" y="10" width="12" height="108" rx="2" fill="url(#hullGrad)" />
+    <rect x="42" y="44" width="44" height="40" rx="2" fill="url(#hullGrad)" stroke="#445566" stroke-width="1" />
+  </g>
+
+  <!-- High-Detail Solar Arrays -->
+  <g>
+    <!-- Left Array -->
+    <rect x="2" y="25" width="40" height="78" fill="url(#solarGrid)" stroke="#fff" stroke-width="0.5" />
+    <!-- Support Brackets -->
+    <path d="M42 44 L15 25 M42 84 L15 103" stroke="#888" stroke-width="2" />
+    <!-- Silicon Reflective Glint -->
+    <rect x="5" y="30" width="10" height="68" fill="#fff" opacity="0.05" />
+    
+    <!-- Right Array -->
+    <rect x="86" y="25" width="40" height="78" fill="url(#solarGrid)" stroke="#fff" stroke-width="0.5" />
+    <path d="M86 44 L113 25 M86 84 L113 103" stroke="#888" stroke-width="2" />
+    <rect x="113" y="30" width="10" height="68" fill="#fff" opacity="0.05" />
+  </g>
+
+  <!-- Navigation and Status Lights -->
+  <g>
+    <circle cx="64" cy="15" r="2" fill="#ff0000" />
+    <circle cx="64" cy="113" r="2" fill="#ff0000" />
+    <rect x="62" y="52" width="4" height="4" fill="#00ffff" />
+    <rect x="62" y="72" width="4" height="4" fill="#ffcc00" />
+  </g>
+</svg>

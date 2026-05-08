@@ -1,26 +1,23 @@
 import { LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
 
-const UNSC_NAMES = [
-    "Reach", "Tribute", "Harvest", "Arcadia", "Jericho {ROMANNUMBER}", "Mars", "Earth",
-    "{GREEKNAME} Octanus {ROMANNUMBER}", "Coral", "New Alexandria", "Aszod", "Fumirole",
-    "Madrigal", "Eridanus {ROMANNUMBER}", "{GREEKNAME} Ceti {ROMANNUMBER}", "Kilo-{NUMBER}", "Onyx", "Ghibalb",
-    "Actium", "Algolis", "Alluvion", "Aleria", "Andesia", "Circinius", "Draco {ROMANNUMBER}",
-    "Emerald Cove", "Estuary", "Far Isle", "Gannick {NUMBER}", "Hestia {ROMANNUMBER}", "Hunters Ridge",
-    "Mamore", "Minab", "Nova Austin", "New Constantinople", "New Harmony", "New Jerusalem",
-    "New Llanelli", "New Tyne", "Paris {ROMANNUMBER}", "Sansar", "Sedra", "Tantalus", "Troy", "Victoria"
+const SOLARIS_NAMES = [
+    "Centauri", "Solara", "New Eden", "Apex", "Bulwark", "Bastion", "Beacon", "Utopia",
+    "Mars", "Earth", "{GREEKNAME} Sector {ROMANNUMBER}", "Titan", "Ganymede", "Europa",
+    "Aurelia", "Novus", "Terra Nova", "Outpost {NUMBER}", "Oasis", "Horizon",
+    "Frontier", "Waystation", "Caldera", "Driftwood", "Highpoint", "Lowland",
+    "New London", "Neo-Kyoto", "Phoenix", "Resilience", "Unity", "Liberty"
 ];
-const COVENANT_NAMES = [
-    "High Charity", "Sanghelios", "Doisac", "Balaho", "Eayn", "Te", "Kig-Yar",
-    "Oth Sonin", "Malurok", "Hesduros", "Glyke", "Uso", "Rahnelo", "Sunaion",
-    "Joyous Exultation", "Suban", "Qikost", "Warial", "Ulgethon", "Saepon'kal",
-    "Zhoist", "Decided Heart", "Sacred Promissory", "Truth and Reconciliation",
-    "Pious Inquisitor", "Long Night of Solace", "Shadow of Intent", "Seeker of Truth"
+const SYNDICATE_NAMES = [
+    "Void Maw", "Singularity", "The Maw", "Dark Star", "Nihilus", "The Abyss", "Eclipsion",
+    "Void Reach", "Shadow Realm", "Obsidian", "The Rift", "Event Horizon", "Darkness",
+    "Desolation", "Silence", "Whisper", "Echo", "Void Keep", "Gatekeeper", "Eternal",
+    "Void Throne", "The Eye", "Chaos", "Oblivion", "Torment", "Malice"
 ];
 
-const UNSC_PREFIXES = ["New", "Fort", "Port", "Mount", "Camp", "Base", "Outpost", "Station", "Colony"];
-const UNSC_SUFFIXES = ["Prime", "Major", "Minor", "Secundus", "Tertius", "{ROMANNUMBER}", "{LETTER}"];
-const COVENANT_PREFIXES = ["High", "Holy", "Sacred", "Divine", "Blessed", "Glorious", "Prophet's"];
-const COVENANT_SUFFIXES = ["Keep", "Spire", "Covenant", "Refuge", "Shrine", "Altar", "Redoubt"];
+const SOLARIS_PREFIXES = ["New", "Fort", "Port", "Mount", "Camp", "Base", "Outpost", "Station", "Colony"];
+const SOLARIS_SUFFIXES = ["Prime", "Major", "Minor", "Secundus", "Tertius", "{ROMANNUMBER}", "{LETTER}"];
+const SYNDICATE_PREFIXES = ["Dark", "Void", "Cursed", "Abyssal", "Shadow", "Lost", "Ancient"];
+const SYNDICATE_SUFFIXES = ["Keep", "Spire", "Remnant", "Refuge", "Shrine", "Altar", "Redoubt"];
 
 const GREEK_NAMES = [
     "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa",
@@ -28,8 +25,8 @@ const GREEK_NAMES = [
 ];
 
 export const PLANET_NAMES = {
-    UNSC: UNSC_NAMES,
-    COVENANT: COVENANT_NAMES,
+    Solaris: SOLARIS_NAMES,
+    Syndicate: SYNDICATE_NAMES,
 };
 
 export const PLANET_TYPES = {
@@ -172,12 +169,9 @@ export class GalaxyService {
         const padding = 50;
         const zones = Math.max(1, numSystems * 3 / 45); // Ensure at least 1x canvas size
 
-        // Scale down star sizes and distances for denser galaxies to improve layout and visuals.
-        // This creates a curve where the scaling effect is minor for few systems but significant for many.
         const scaleFactor = Math.max(0.25, 1 - (numSystems / 1500));
         const minStarDist = 200 * scaleFactor;
 
-        // 1. Place all systems randomly, avoiding overlap
         for (let i = 0; i < numSystems; i++) {
             let x, y, validPosition, attempts = 0;
             const maxAttempts = 2000; // Prevent infinite loops
@@ -214,7 +208,6 @@ export class GalaxyService {
             });
         }
 
-        // 2. Create a Minimum Spanning Tree (MST) to guarantee connectivity using Prim's algorithm.
         if (systems.length > 0) {
             const systemMap = new Map(systems.map(s => [s.id, s]));
             const connected = new Set();
@@ -223,7 +216,6 @@ export class GalaxyService {
             const startNode = systems[0];
             connected.add(startNode.id);
 
-            // Initialize minDists for all other nodes from the startNode
             for (let i = 1; i < systems.length; i++) {
                 const node = systems[i];
                 const dist = Math.sqrt((startNode.x - node.x) ** 2 + (startNode.y - node.y) ** 2);
@@ -231,7 +223,6 @@ export class GalaxyService {
             }
 
             while (connected.size < systems.length && minDists.size > 0) {
-                // Find the unconnected node with the smallest distance to the tree
                 let closestNodeId = null;
                 let minEdge = { dist: Infinity };
 
@@ -242,7 +233,7 @@ export class GalaxyService {
                     }
                 }
 
-                if (!closestNodeId) break; // Should not happen if there are unconnected nodes
+                if (!closestNodeId) break; 
 
                 const toNode = systemMap.get(closestNodeId);
                 const fromNode = systemMap.get(minEdge.fromNodeId);
@@ -263,7 +254,6 @@ export class GalaxyService {
             }
         }
 
-        // 3. Add additional two-way warps based on density
         const numTwoWay = Math.floor((numSystems * (twoWayDensity / 100)) - (numSystems - 1));
         for (let i = 0; i < numTwoWay; i++) {
             const p1 = systems[Math.floor(Math.random() * numSystems)];
@@ -274,7 +264,6 @@ export class GalaxyService {
             }
         }
 
-        // 4. Add one-way warps based on density
         const numOneWay = Math.floor(numSystems * (oneWayDensity / 100));
         for (let i = 0; i < numOneWay; i++) {
             const p1 = systems[Math.floor(Math.random() * numSystems)];
@@ -317,17 +306,14 @@ export class GalaxyService {
         const centerX = canvasWidth / 2;
         const centerY = canvasHeight / 2;
         let maxRadius = Math.min(canvasWidth, canvasHeight) * 0.45;
-        const minRadius = 80; // Increased inner radius to avoid center clustering
+        const minRadius = 80; 
 
-        // Dynamic minimum distance based on density
         const scaleFactor = Math.max(0.4, 1 - (totalSystems / 500));
-        const minStarDist = 200 * scaleFactor; // Increased to prevent clustering and overlap
+        const minStarDist = 200 * scaleFactor; 
         const minStarDistSq = minStarDist * minStarDist;
 
-        // --- Expand Universe if needed ---
-        // Calculate required area with a packing factor to ensure stars fit comfortably
         const areaPerStar = minStarDist * minStarDist;
-        const requiredArea = totalSystems * areaPerStar * 1.5; // 1.5 packing factor
+        const requiredArea = totalSystems * areaPerStar * 1.5; 
         const currentArea = Math.PI * (maxRadius * maxRadius - minRadius * minRadius);
 
         if (requiredArea > currentArea) {
@@ -336,14 +322,11 @@ export class GalaxyService {
             if (this.loggingService) this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `[GalaxyGen] Expanded universe radius to ${Math.round(maxRadius)} to fit ${totalSystems} stars.`);
         }
 
-        // 1. Generate Slice 0 (The Template)
         const slice0 = [];
         const wedgeAngle = (2 * Math.PI) / playerCount;
         
-        // Ensure the first system is a good "Home" system (somewhat central in the wedge)
-        // Randomize home position slightly to avoid exact same map every time
-        const homeR = minRadius + (maxRadius - minRadius) * (0.75 + Math.random() * 0.2); // 0.75 to 0.95
-        const homeTheta = wedgeAngle * (0.3 + Math.random() * 0.4); // 0.3 to 0.7
+        const homeR = minRadius + (maxRadius - minRadius) * (0.75 + Math.random() * 0.2); 
+        const homeTheta = wedgeAngle * (0.3 + Math.random() * 0.4); 
         slice0.push({ r: homeR, theta: homeTheta, isHome: true, planetConfig: this._generatePlanetConfig() });
 
         for (let i = 1; i < systemsPerSlice; i++) {
@@ -356,18 +339,14 @@ export class GalaxyService {
                 r = minRadius + Math.random() * (maxRadius - minRadius);
                 theta = Math.random() * wedgeAngle;
 
-                // Check collision with existing stars in this slice AND potential neighbors
                 for (const other of slice0) {
                     if (!other) continue;
-                    // 1. Distance within the slice
                     const d2 = r*r + other.r*other.r - 2*r*other.r*Math.cos(theta - other.theta);
                     if (d2 < minStarDistSq) { valid = false; break; }
 
-                    // 2. Distance to neighbor slice (virtual position at theta + wedgeAngle)
                     const d2Next = r*r + other.r*other.r - 2*r*other.r*Math.cos(theta - (other.theta + wedgeAngle));
                     if (d2Next < minStarDistSq) { valid = false; break; }
 
-                    // 3. Distance to previous slice (virtual position at theta - wedgeAngle)
                     const d2Prev = r*r + other.r*other.r - 2*r*other.r*Math.cos(theta - (other.theta - wedgeAngle));
                     if (d2Prev < minStarDistSq) { valid = false; break; }
                 }
@@ -379,7 +358,6 @@ export class GalaxyService {
             }
         }
 
-        // 2. Replicate Slices
         for (let p = 0; p < playerCount; p++) {
             const rotation = p * wedgeAngle;
             
@@ -394,7 +372,7 @@ export class GalaxyService {
                 systems.push({
                     id: systemId,
                     x, y,
-                    r: (Math.random() * 10 + 15), // Visual radius can vary slightly
+                    r: (Math.random() * 10 + 15), 
                     name: `System ${p}-${idx}`,
                     links: [],
                     owner: null,
@@ -402,18 +380,16 @@ export class GalaxyService {
                     planets: this._instantiatePlanets(systemId, template.planetConfig),
                     buildQueue: [],
                     heat: 0,
-                    sliceIndex: idx, // Track original index for linking
+                    sliceIndex: idx, 
                     slice: p
                 });
             });
         }
 
-        // 3. Generate Links for Slice 0 (MST to ensure connectivity)
-        // We define connections based on indices in slice 0, then replicate
         const slice0Links = [];
         
         if (slice0.length > 0) {
-            const connected = new Set([0]); // Start with index 0
+            const connected = new Set([0]); 
             const unconnected = new Set();
             for (let i = 1; i < slice0.length; i++) unconnected.add(i);
 
@@ -446,7 +422,6 @@ export class GalaxyService {
             }
         }
 
-        // Add extra links based on density
         const extraLinks = Math.floor(slice0.length * (twoWayDensity / 100));
         for (let k = 0; k < extraLinks; k++) {
             const i = Math.floor(Math.random() * slice0.length);
@@ -457,12 +432,10 @@ export class GalaxyService {
             }
         }
 
-        // 4. Apply Links to all Slices
         systems.forEach(sys => {
             const p = sys.slice;
             const idx = sys.sliceIndex;
 
-            // Internal Slice Links
             slice0Links.forEach(linkStr => {
                 const [a, b] = linkStr.split('-').map(Number);
                 if (idx === a) {
@@ -474,10 +447,6 @@ export class GalaxyService {
                 }
             });
 
-            // Inter-Slice Links (Ring Connection)
-            // Connect the home system (idx 0) to the home system of the next slice
-            // Or connect systems near the boundary.
-            // Simple approach: Connect Home (0) to Home of next slice (p+1)
             if (idx === 0) {
                 const nextP = (p + 1) % playerCount;
                 const targetId = `sys-p${nextP}-0`;
@@ -488,8 +457,6 @@ export class GalaxyService {
                 sys.links.push({ targetId: prevTargetId, type: 'two-way' });
             }
 
-            // Connect the outer rim system (last index) to the next slice's outer rim
-            // This creates a "ring road" around the galaxy, preventing the center from being the only choke point
             if (idx === systemsPerSlice - 1) {
                 const nextP = (p + 1) % playerCount;
                 const targetId = `sys-p${nextP}-${idx}`;
@@ -505,23 +472,20 @@ export class GalaxyService {
     }
 
     generateSystemName(faction) {
-        const names = PLANET_NAMES[faction] || PLANET_NAMES['UNSC'];
+        const names = PLANET_NAMES[faction] || PLANET_NAMES['Solaris'];
         const baseName = names[Math.floor(Math.random() * names.length)];
         let finalName = baseName;
         
         const roll = Math.random();
         if (roll < 0.15) {
-            // Prefix
-            const prefixes = faction === 'COVENANT' ? COVENANT_PREFIXES : UNSC_PREFIXES;
+            const prefixes = faction === 'Syndicate' ? SYNDICATE_PREFIXES : SOLARIS_PREFIXES;
             const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
             finalName = `${prefix} ${baseName}`;
         } else if (roll < 0.30) {
-            // Suffix
-            const suffixes = faction === 'COVENANT' ? COVENANT_SUFFIXES : UNSC_SUFFIXES;
+            const suffixes = faction === 'Syndicate' ? SYNDICATE_SUFFIXES : SOLARIS_SUFFIXES;
             const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
             finalName = `${baseName} ${suffix}`;
         } else if (roll < 0.40) {
-            // Number
             finalName = `${baseName} ${Math.floor(Math.random() * 100) + 1}`;
         }
         

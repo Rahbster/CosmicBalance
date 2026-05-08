@@ -1,7 +1,15 @@
 {
-  "UNSC": {
-    "unsc_hull_1": {
-      "name": "Titanium-A Plating",
+  "Solaris": {
+    "basic_construction": {
+      "name": "Basic Construction",
+      "description": "Unlocks the ability to build fundamental structures like mines and research labs on controlled planets.",
+      "cost": { "IO": 50, "minerals": 25 },
+      "researchTime": 20000,
+      "dependencies": [],
+      "effects": []
+    },
+    "sol_hull_1": {
+      "name": "Neutronium Plating",
       "description": "Increases the hull strength of all ships by 10%.",
       "cost": { "IO": 100, "minerals": 50 },
       "researchTime": 30000,
@@ -10,17 +18,17 @@
         { "target": "ALL_SHIPS", "type": "HULL_MODIFIER", "value": 1.1 }
       ]
     },
-    "unsc_hull_2": {
+    "sol_hull_2": {
       "name": "Ablative Armor",
       "description": "Further increases hull strength of all ships by 15%.",
       "cost": { "IO": 250, "minerals": 120 },
       "researchTime": 60000,
-      "dependencies": ["unsc_hull_1"],
+      "dependencies": ["sol_hull_1"],
       "effects": [
         { "target": "ALL_SHIPS", "type": "HULL_MODIFIER", "value": 1.15 }
       ]
     },
-    "unsc_shields_1": {
+    "sol_shields_1": {
       "name": "Energy Shielding",
       "description": "Unlocks basic shield technology for all ships, increasing shield capacity by 10%.",
       "cost": { "IO": 150, "minerals": 25 },
@@ -30,27 +38,37 @@
         { "target": "ALL_SHIPS", "type": "SHIELD_MODIFIER", "value": 1.1 }
       ]
     },
-    "unsc_sublight_1": {
-      "name": "Advanced Thrusters",
-      "description": "Increases sublight speed of all ships by 10%.",
+    "sol_warp_drive": {
+      "name": "Solaris Jump Drive",
+      "description": "Allows ships to enter Subspace, enabling travel between Star Systems within the current Galaxy.",
       "cost": { "IO": 200, "minerals": 75 },
       "researchTime": 50000,
-      "dependencies": [],
+      "dependencies": ["basic_construction", "sol_hull_1"],
       "effects": [
-        { "target": "ALL_SHIPS", "type": "SUBLIGHT_MODIFIER", "value": 1.1 }
+        { "target": "PLAYER", "type": "UNLOCK_ACTION", "value": "TRAVEL_GALAXY" }
       ]
     },
-    "unsc_warp_1": {
+    "sol_intergalactic_drive": {
+      "name": "Extra-Galactic Geodesics",
+      "description": "Unlocks the ability to traverse the vast void between Galaxies.",
+      "cost": { "IO": 5000, "minerals": 2000 },
+      "researchTime": 300000,
+      "dependencies": ["sol_warp_drive", "cruiser_construction"],
+      "effects": [
+        { "target": "PLAYER", "type": "UNLOCK_ACTION", "value": "TRAVEL_UNIVERSE" }
+      ]
+    },
+    "sol_warp_1": {
       "name": "Warp Field Dynamics",
-      "description": "Increases warp speed of all ships by 15%.",
+      "description": "Increases warp speed (travel time) of all ships by 15%.",
       "cost": { "IO": 300, "minerals": 100 },
       "researchTime": 75000,
-      "dependencies": [],
+      "dependencies": ["sol_warp_drive"],
       "effects": [
         { "target": "ALL_SHIPS", "type": "WARP_MODIFIER", "value": 1.15 }
       ]
     },
-    "unsc_energy_1": {
+    "sol_energy_1": {
       "name": "Fission Reactors",
       "description": "Improves planetary energy grid output by 20%.",
       "cost": { "IO": 250, "minerals": 100 },
@@ -65,7 +83,7 @@
       "description": "Unlocks the ability to build Frigate class warships at Space Stations.",
       "cost": { "IO": 500, "minerals": 200 },
       "researchTime": 60000,
-      "dependencies": [],
+      "dependencies": ["basic_construction"],
       "effects": []
     },
     "destroyer_construction": {
@@ -85,10 +103,18 @@
       "effects": []
     }
   },
-  "COVENANT": {
-    "cov_shields_1": {
-      "name": "Energy Shield Emitters",
-      "description": "Improves the resilience of all Covenant shields by 15%.",
+  "Syndicate": {
+    "basic_construction": {
+      "name": "Basic Construction",
+      "description": "Unlocks the ability to build fundamental structures like mines and research labs on controlled planets.",
+      "cost": { "IO": 50, "minerals": 25 },
+      "researchTime": 20000,
+      "dependencies": [],
+      "effects": []
+    },
+    "syn_shields_1": {
+      "name": "Syndicate Field Modulators",
+      "description": "Improves the resilience of all Syndicate shields by 15%.",
       "cost": { "IO": 120, "minerals": 40 },
       "researchTime": 30000,
       "dependencies": [],
@@ -96,19 +122,39 @@
         { "target": "ALL_SHIPS", "type": "SHIELD_MODIFIER", "value": 1.15 }
       ]
     },
-    "cov_shields_2": {
+    "syn_shields_2": {
       "name": "Multi-Layered Shielding",
       "description": "Advanced shield harmonics increase shield strength by another 20%.",
       "cost": { "IO": 300, "minerals": 100 },
       "researchTime": 70000,
-      "dependencies": ["cov_shields_1"],
+      "dependencies": ["syn_shields_1"],
       "effects": [
         { "target": "ALL_SHIPS", "type": "SHIELD_MODIFIER", "value": 1.20 }
       ]
     },
-    "cov_weapons_1": {
+    "syn_gravity_drive": {
+      "name": "Syndicate Singularity Drive",
+      "description": "Allows ships to travel between Star Systems with high precision.",
+      "cost": { "IO": 200, "minerals": 75 },
+      "researchTime": 50000,
+      "dependencies": ["basic_construction", "syn_shields_1"],
+      "effects": [
+        { "target": "PLAYER", "type": "UNLOCK_ACTION", "value": "TRAVEL_GALAXY" }
+      ]
+    },
+    "syn_intergalactic_drive": {
+      "name": "Void Gate Protocol",
+      "description": "Unlocks the ability to traverse the vast void between Galaxies.",
+      "cost": { "IO": 5000, "minerals": 2000 },
+      "researchTime": 300000,
+      "dependencies": ["syn_gravity_drive", "cruiser_construction"],
+      "effects": [
+        { "target": "PLAYER", "type": "UNLOCK_ACTION", "value": "TRAVEL_UNIVERSE" }
+      ]
+    },
+    "syn_weapons_1": {
       "name": "Plasma Cannon",
-      "description": "Increases damage of all Covenant ships by 10%.",
+      "description": "Increases damage of all Syndicate ships by 10%.",
       "cost": { "IO": 150, "minerals": 50 },
       "researchTime": 40000,
       "dependencies": [],
@@ -121,7 +167,7 @@
       "description": "Unlocks the ability to build Frigate class warships at Space Stations.",
       "cost": { "IO": 500, "minerals": 200 },
       "researchTime": 60000,
-      "dependencies": [],
+      "dependencies": ["basic_construction"],
       "effects": []
     },
     "destroyer_construction": {

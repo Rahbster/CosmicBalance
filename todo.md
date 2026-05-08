@@ -1,73 +1,119 @@
-# Cosmic Balance - Feature Roadmap & Todo
+# Cosmic Balance - Development Roadmap
 
-This document outlines planned features derived from *Cosmic Balance I*, *Cosmic Balance II*, and *Trade Wars 2002*, adapted for the current Real-Time Strategy architecture.
+## Project Vision
+A hybrid strategy game combining:
+*   **Trade Wars 2002 (TW):** Exploration, Map topology, Trading mechanics.
+*   **Cosmic Balance (CB1):** Tactical ship-to-ship combat, modular ship design.
+*   **Cosmic Balance II (CB2):** Strategic planetary control, resource management, production pipelines.
+*   **Theme:** Original space strategy factions (Solaris vs Syndicate).
 
-## 1. Economy & Logistics (Source: Cosmic Balance II & Trade Wars 2002)
+## Game Loop & Progression (The "Three Tiers")
+The game scales in scope as the player researches new propulsion technologies. As the game evolves, the "micro-management" layer shifts: what was once a primary focus (like planetary development) becomes an abstracted background mechanic.
 
-- [ ] **Commerce Nets (CB2):**
-    - Implement logic to detect "Nets" (e.g., 1 Industrial + 2 Mining + 7 Farming planets connected by trade).
-    - Add bonus IO/Resource generation for active nets.
-    - Visual indicators for established trade routes.
-- [ ] **Supply System (CB2):**
-    - Implement "Supply Points" as a resource.
-    - **Colony Maintenance:** Planets require periodic supply to remain "Active". Failure leads to "Ecolapse" (reduced production).
-    - **Ship Supply:** Ships consume supply over time or per jump.
-- [ ] **Trading Ports (TW2002):**
-    - Add `Station` types that act as Trade Ports.
-    - Allow buying/selling of specific resources (Fuel Ore, Organics, Equipment) at dynamic prices.
-- [ ] **Cargo Missions (CB2):**
-    - Automate `Freighter` units to move resources between sectors/planets to fulfill Commerce Net requirements.
+### Tier 1: System Management (The "Police Action" Phase)
+*   **Scope:** A single Star System (e.g., Epsilon Eridani).
+*   **Gameplay:**
+    *   Manage planets (Agri, Mining, Industrial).
+    *   Build sub-light ships (Scouts).
+    *   **Enemy:** **Pirates & Raiders.** Small, fast ships trying to steal resources from trade routes.
+    *   **Goal:** Research *Slipspace Drive* (Solaris) or *Gravity Drive* (Syndicate).
 
-## 2. Planetary Development (Source: Trade Wars 2002)
+### Tier 2: Galactic Exploration (The "Civil War" Phase)
+*   **Scope:** A Galaxy of connected Star Systems.
+*   **Gameplay:**
+    *   Explore Warp Lanes and "Slides" (One-way warps).
+    *   **Travel:** Point-to-point travel through a known web of connections.
+    *   **Management:** **This is the primary tier for planetary management.** Players build up colonies, mines, and farms on individual planets.
+    *   Tactical Ship Combat (CB1 style) when fleets meet.
+    *   **Enemy:** **Insurrectionists (Solaris) / Heretics (Syndicate).** Breakaway factions with similar tech but different agendas.
+    *   **Goal:** Research *Intergalactic Matrix* / *Path of the Ancients*.
 
-- [ ] **Citadels (TW2002):**
-    - [x] **Logic:** Implemented Combat Control (Lvl 2), Quasar Cannon (Lvl 3), and Shields (Lvl 5) in CombatService.
-    - [x] **UI:** Planets are selectable and the "Upgrade Citadel" button is now functional.
-    - [ ] **Visuals:** Add effects for Quasar Cannon fire and Shield hits.
-    - [x] **AI:** Implement cost/benefit analysis for AI to build and upgrade Citadels.
-- [ ] **Genesis Torpedoes (TW2002):**
-    - High-tier tech/weapon to generate a random planet in an empty sector.
+### Tier 3: Universal Conquest (The "Total War" Phase)
+*   **Scope:** Multiple Galaxies connected by rare, high-cost **Jump Gates**.
+*   **Gameplay:**
+    *   Macro-management of fleets.
+    *   Strategic Auto-Battles (CB2 style).
+    *   **Total Abstraction:** Upon entering this tier, **all planetary management ceases.** Star Systems across all galaxies (including the home galaxy) are now treated as single economic nodes, their output based on their previous development. The player's focus shifts entirely to controlling star systems and jump gates.
+    *   **Enemy:** **The Main Opposition (Solaris vs Syndicate).** Full-scale galactic war.
+    *   **Goal:** Domination of the universe.
 
-## 3. Combat & Ship Design (Source: Cosmic Balance I)
+### Tier 4: The Scourge (The "Survival" Phase)
+*   **Scope:** The entire map.
+*   **Gameplay:**
+    *   **Enemy:** **The Scourge.** An existential threat that consumes ships and planets, turning them against you.
+    *   **Mechanic:** "Infection" spreads through warp lanes.
+    *   **Goal:** Form an Alliance (Solaris + Syndicate) to fire the ancient array or sterilize infected systems.
 
-- [ ] **Electronic Warfare (CB1):**
-    - Add `ECM` (Electronic Counter Measures) component: Reduces incoming hit chance.
-    - Add `ECCM` (Electronic Counter-Counter Measures) component: Counters enemy ECM.
-- [ ] **Boarding & Capture (CB1):**
-    - Implement `Marines` as a cargo/component.
-    - Allow boarding actions against disabled (low hull) ships to capture them.
-- [ ] **Weapon Specialization (CB1):**
-    - **Phasers:** Instant hit, shield effective.
-    - **Photon Torpedoes:** High damage, energy intensive.
-    - **Plasma Torpedoes:** Devastating damage, destroys armor, slow reload.
-    - **Seekers/Missiles:** Tracking weapons, can be shot down by Point Defense (Belts).
-- [ ] **Ship Systems:**
-    - **Tractor Beams:** Ability to tow ships (friendly or disabled enemy).
-    - **Transporters:** Range-based troop transfer without docking.
+## Open Design Questions (Resolving Hybrid Conflicts)
+*   **Time Progression:**
+    *   *Approach:* **Tick-Based Macro / Real-Time Micro.** The universe moves on ticks (production/travel), but combat/interaction is real-time.
+    *   *Scourge Progression:* The Scourge spreads on a "Tick" basis (e.g., every 100 ticks, infected neighbor systems roll for infection).
+*   **Combat Control:**
+    *   *Approach:* **Hybrid Resolution.** Minor skirmishes (e.g., trader interception) can be "Auto-Resolved" by stats. Major fleet engagements offer an "Enter Tactical Mode" option (CB1 style).
+*   **Starting Scenarios:**
+    *   New Game menu allows starting at Phase 1 (clean slate), Phase 2 (established empire), or Phase 3 (galactic power).
 
-## 4. Strategic Map Features (Source: Trade Wars 2002 & CB2)
+## Roadmap
 
-- [ ] **Space Mines (TW2002):**
-    - [x] **Logic:** Implemented deployment and collision logic.
-    - [x] **Visuals:** Added rendering for mines.
-    - [ ] **Mine Sweeper:** Specific role/component to clear mines safely.
-- [ ] **Cloaking Device (TW2002):**
-    - [x] **Logic:** Implemented toggle and visibility checks. Decloaks on fire.
-- [ ] **Navigational Hazards:**
-    - [x] **Visuals:** Added rendering support for Nebulas and Black Holes.
-    - [ ] **Generation:** Need to update GalaxyService to generate hazards.
+### Phase 1: The Hybrid Economy (Reconciliation)
+*Goal: Bridge the gap between Trade Wars commodities and Cosmic Balance production.*
+- [ ] **Unify Resource Models:**
+    - Map TW `Fuel Ore` to CB `Minerals` (Mined from Volcanic/Barren planets; used for Hulls).
+    - Map TW `Equipment` to CB `IO` (Industrial Output; used for Research/Components).
+    - Map TW `Organics` to Colony Support (Farmed from Agri/Terran planets; consumes to boost IO).
+- [ ] **Define Economy Loop:**
+    - **Tier 1 Loop:** Extract Minerals -> Build Ships -> Research Warp.
+    - Trading between sectors generates raw resources.
+    - **Refine Tech Tree:** Ensure a clear research path exists for Tier 1, with prerequisites for Warp Drive.
+    - **Ports are Planets:** Players trade by orbiting planets.
+    - Controlled Planets consume `Organics` to maintain efficiency.
+    - `IO` + `Minerals` are used for `tech-tree.json` unlocks and Ship Construction.
 
-## 5. AI & NPC Factions (Source: Trade Wars 2002)
+### Phase 2: Universe & Exploration (TW + CB2)
+*Goal: A playable map that supports both trading and conquest.*
+- [ ] **Galaxy Service (`js/services/GalaxyService.js`):**
+    - **Tier 1: Star Systems:** Nodes containing Planets (Sublight travel).
+    - **Tier 2: Galaxies:** Clusters of Star Systems connected by Warp Lanes (bidirectional & one-way).
+    - **Big Bang / Small Bang:** Procedural generation using seeds. The level of detail (planets vs. abstracted stats) generated depends on the **current game tier**, not the specific galaxy.
+    - **New Game Screen:** Create UI for players to select a starting Scenario (Tier 1, 2, or 3).
+    - **Scenario Generator:** Logic to seed the universe differently based on selected Start Phase.
+    - **Tier 3: The Universe:** Multiple Galaxies connected by rare "Jump Gates".
+    - **Auto-Mapper:** Visited systems are rendered on a player map; unvisited are "Fog of War".
+    - Store state in `GalaxyService`.
+- [ ] **Interactive Map UI:**
+    - Implement a 3-tier zoomable map:
+        - **Universe View:** Shows galaxies as disks, connected by Jump Gate lines.
+        - **Galaxy View:** Zooms into a galaxy to show star systems and warp lanes.
+        - **System View:** Zooms into a system to show planets and ships.
+    - Implement navigation controls that are context-aware based on zoom level.
+- [ ] **Planetary Interface:**
+    - Replace generic TW Port Classes with Planet Types (Volcanic, Terran, Oceanic).
+    - Planets have `Alignment` (Solaris/Syndicate).
+    - Planets have `Tech Level` (Limits what ships can be built, per CB2).
 
-- [ ] **Neutral Factions:**
-    - [x] **Ferrengi/Raiders:** Hostile NPCs that attack trade routes. Implemented as 'pirates' faction.
-    - **Federation/Police:** Neutral NPCs that attack aggressors in "Protected" sectors.
-- [ ] **StarDock (TW2002):**
-    - A unique neutral station in the galaxy center.
-    - Functions: Bank (store credits), Tavern (info), Shipyard (buy unique hulls).
+### Phase 3: Tactical Combat (CB1)
+*Goal: Turn-based or real-time tactical battles when fleets meet.*
+- [ ] **Ship Design System:**
+    - Use `data/tech-tree.json` modifiers (e.g., `Titanium-A Plating`) to calculate derived stats.
+    - Define Ship Classes (Scout, Frigate, Cruiser) based on CB1 stats (Range, Speed, Weapon Arcs).
+- [ ] **Combat Engine:**
+    - Triggered when opposing factions occupy the same Star System.
+    - **Auto-Resolve:** Standard calculation for unequal forces or trading raids (saves time).
+    - **Tactical Command:** Optional manual control for major battles.
+    - **Positional Advantage:** Defenders at a warp exit get the first strike initiative.
 
-## 6. UI & Meta
+### Phase 4: AI & Networking
+*Goal: Robust single-player, multiplayer, and 'The Scourge' logic.*
+- [ ] **P2P Implementation:**
+    - Wire up `css/peer.css` UI to WebRTC logic.
+    - Implement Game State Sync (Universe changes, Fleets).
+- [ ] **AI Opponents:**
+    - **Trader Bot (TW Logic):** Moves between ports to optimize resource gain.
+    - **Strategist Bot (CB2 Logic):** Decides when to expand/colonize.
+    - **Tactician Bot (CB1 Logic):** Manages ship combat maneuvers.
+    - **The Scourge AI:**
+        - **Swarm Behavior:** Doesn't trade, only consumes.
+        - **Reanimation:** Destroyed player ships in Scourge sectors have a % chance to respawn as Scourge ships.
 
-- [ ] **Alignment System (TW2002):**
-    - Track player actions (attacking neutrals vs pirates).
-    - Unlock specific tech/ships based on Alignment (Good/Evil).
+### Phase 5: Diplomacy & Alliances (Endgame)
+- [ ] **Alliance System:** Mechanics for Solaris/Syndicate players to cease fire and share vision/warp gates to fight The Scourge.

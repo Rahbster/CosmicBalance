@@ -2,28 +2,45 @@
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
 :root {
-    /* Light Theme (Default) */
-    --bg-color: #f4f4f9;
-    --surface-color: #ffffff;
-    --text-color: #333333;
-    --primary-color: #007bff;
-    --border-color: #e0e0e0;
-    --shadow: 0 2px 5px rgba(0,0,0,0.1);
-    --header-bg: #ffffff;
+    /* Tactical Dark Theme (Default) */
+    --bg-color: #0b0d10;
+    --surface-color: #1a2533; 
+    --text-color: #e0e0e0;
+    --primary-color: #00f2ff;
+    --border-color: #2d3846;
+    --header-bg: #1a2533;
+    --shadow: 0 4px 15px rgba(0,0,0,0.5);
     --header-height: 60px;
     --nav-height: 60px;
     --font-main: 'Orbitron', sans-serif;
 }
 
-[data-theme="dark"] {
-    /* Spartan Dark Theme */
-    --bg-color: #0f1115;
-    --surface-color: #1a2533; /* Spartan Navy */
-    --text-color: #b0b3b8;
-    --primary-color: #4c8c4a; /* Spartan Green */
-    --border-color: #2d3846;
-    --header-bg: #1a2533;
-    --shadow: 0 2px 5px rgba(0,0,0,0.5);
+[data-theme="light"] {
+    /* Light Theme (Override) */
+    --bg-color: #f4f4f9;
+    --surface-color: #ffffff;
+    --text-color: #333333;
+    --primary-color: #007bff;
+    --border-color: #e0e0e0;
+    --header-bg: #ffffff;
+}
+
+/* Dark theme class support */
+.dark {
+    --bg-color: #0b0d10;
+    --surface-color: #1a2533;
+    --text-color: #e0e0e0;
+    --primary-color: #00f2ff;
+    --btn-active-text: #000;
+}
+
+.syndicate {
+    --bg-color: #0d0b15;
+    --surface-color: #1a152e;
+    --text-color: #e0e0ff;
+    --primary-color: #a855f7; /* Purple */
+    --btn-active-text: #fff;
+    --border-color: #3b2b5a;
 }
 
 * {
@@ -32,12 +49,32 @@
     padding: 0;
 }
 
+html, body {
+    height: 100dvh;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent global scrollbars */
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: var(--bg-color);
     color: var(--text-color);
     transition: background-color 0.3s ease, color 0.3s ease;
-    padding-bottom: var(--nav-height); /* Space for bottom nav */
+    /* Space for bottom nav is now handled by #app padding if needed, but flex layout is better */
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    /* Handle iPhone notches/safe areas */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 
 /* Header */
@@ -76,51 +113,107 @@ h1, h2, h3 {
 
 .resource-display {
     position: absolute;
-    top: 60px;
-    left: 1rem;
-    background-color: rgba(0, 0, 0, 0.75);
-    color: white;
-    padding: 0.75rem 1rem;
+    top: 70px;
+    right: 1rem;
+    left: auto;
+    z-index: 1000;
+    pointer-events: auto;
+    user-select: none;
+    width: 220px;
+    background-color: rgba(0, 20, 30, 0.85);
+    border: 1px solid rgba(0, 242, 255, 0.3);
+    box-shadow: 0 0 15px rgba(0, 242, 255, 0.2), inset 0 0 10px rgba(0, 242, 255, 0.1);
+    backdrop-filter: blur(4px);
+    padding: 0.5rem 1rem;
     border-radius: 8px;
-    font-family: var(--font-main);
-    font-size: 0.9rem;
-    z-index: 10;
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-width: 200px;
-}
-
-/* Outer wrapper for each line */
-.resource-display span {
-    display: flex;
-    justify-content: space-between; 
-    align-items: center;
-}
-
-/* Inner wrapper for Icon + Text */
-.res-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.res-label i {
-    font-style: normal;
-    width: 20px;
-    display: inline-block;
-    text-align: center;
+    display: flex; 
+    flex-direction: column; 
+    gap: 5px;
+    transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
 .resource-display strong {
+    color: #00f2ff;
+    text-shadow: 0 0 8px rgba(0, 242, 255, 0.8), 0 0 2px rgba(255, 255, 255, 0.5);
     font-variant-numeric: tabular-nums;
-    color: #00ffcc;
 }
+
+.low-resource {
+    color: #ff3131 !important;
+    animation: emergency-pulse 1.5s infinite;
+}
+
+@keyframes emergency-pulse {
+    0% { text-shadow: 0 0 2px #ff3131; }
+    50% { text-shadow: 0 0 12px #ff3131; }
+    100% { text-shadow: 0 0 2px #ff3131; }
+}
+
+#resource-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+}
+
+#resource-list > span {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    gap: 1rem;
+}
+
+.res-value-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.res-value-group i, .res-value-group .icon-svg {
+    width: 20px;
+    text-align: center;
+    font-style: normal;
+}
+
+.icon-svg {
+    vertical-align: middle;
+}
+
+.system-flag {
+    fill: var(--player-color);
+    filter: drop-shadow(0 0 3px var(--player-color));
+}
+
+.resource-display span:hover .system-flag {
+    fill: #ffffff;
+    filter: drop-shadow(0 0 5px var(--player-color));
+    transition: 0.2s;
+}
+
+/* Build and Queue Styles */
+.build-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.build-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.1); padding: 5px 10px; border-radius: 4px; }
+.build-controls { display: flex; gap: 5px; }
+.build-queue-list { list-style: none; padding: 0; margin-top: 10px; }
+.build-queue-list li { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px solid var(--border-color); }
+.build-queue-list .progress-bar-container { width: 100%; order: 3; }
+.cancel-build-btn { background: none; border: none; color: #999; font-size: 1.5rem; cursor: pointer; padding: 0 5px; line-height: 1; order: 2; }
+.cancel-build-btn:hover { color: #dc3545; }
+.planet-list { list-style: none; padding: 0; margin-top: 10px; } 
+.planet-list li { padding: 5px 0; border-bottom: 1px solid var(--border-color); font-size: 0.9em; }
+.progress-bar-container { height: 5px; background: #555; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.progress-bar { height: 100%; background: var(--primary-color); width: 50%; }
+.repair-bay-list { list-style: none; padding: 0; margin-top: 10px; }
+.repair-bay-list li { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border-color); }
+.research-queue-list { list-style: none; padding: 0; margin: 15px 0; }
+.research-queue-list li { display: flex; flex-direction: column; gap: 5px; padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+.queue-badge { display: inline-block; background-color: var(--primary-color); color: var(--surface-color, #1a1a1a); padding: 1px 6px; border-radius: 7px; font-size: 0.75em; font-weight: bold; margin-left: 5px; vertical-align: middle; }
 
 /* Sidenav Styles */
 .sidenav {
-    height: 100%;
+    height: 100dvh;
     width: 0; /* Start hidden */
     position: fixed;
     z-index: 200;
@@ -129,7 +222,8 @@ h1, h2, h3 {
     background-color: var(--surface-color);
     overflow-x: hidden;
     transition: 0.3s;
-    padding-top: 60px;
+    padding-top: calc(60px + env(safe-area-inset-top));
+    padding-bottom: env(safe-area-inset-bottom);
     box-shadow: 3px 0 6px rgba(0,0,0,0.2);
 }
 
@@ -184,11 +278,45 @@ h1, h2, h3 {
     align-items: center;
 }
 
+.screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+}
+
 /* Main Layout */
 main {
-    padding: 1rem;
-    max-width: 800px;
-    margin: 0 auto;
+    padding: 0;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    position: relative; /* Ensure absolute children position relative to main */
+}
+
+#selected-planet-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 20;
+    background: var(--surface-color, #1a1a1a);
+    border-top: 1px solid var(--border-color, #333);
+    padding: 10px;
+    max-height: 40vh; /* Better than fixed pixels */
+    overflow-y: auto;
+    box-shadow: 0 -5px 15px rgba(0,0,0,0.5);
+    transition: transform 0.3s ease;
+}
+
+#selected-planet-info.hidden {
+    display: none !important;
+}
+
+.hidden {
+    display: none !important;
 }
 
 .view {
@@ -217,6 +345,7 @@ button {
     color: white;
     cursor: pointer;
     font-size: 1rem;
+    flex-shrink: 0;
 }
 
 /* Bottom Navigation */
@@ -275,7 +404,7 @@ button {
     border-radius: 8px;
     box-shadow: var(--shadow);
     position: relative;
-    max-height: 90vh;
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
     overflow-y: auto;
 }
 
@@ -298,8 +427,8 @@ button {
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* Spartan Theme Components */
-.spartan-table {
+/* Tactical Theme Components */
+.tactical-table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 1rem;
@@ -307,18 +436,79 @@ button {
     color: var(--text-color);
     font-size: 0.9rem;
 }
-.spartan-table th, .spartan-table td {
+.tactical-table th, .tactical-table td {
     padding: 0.75rem;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
 }
-.spartan-table th {
-    background-color: rgba(76, 140, 74, 0.2); /* Green tint */
+.tactical-table th {
+    background-color: rgba(0, 242, 255, 0.1);
     color: #fff;
     text-transform: uppercase;
     letter-spacing: 1px;
     font-family: var(--font-main);
 }
+
+/* Color Picker */
+.color-picker-grid {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.faction-flag-preview {
+    margin-bottom: 1.5rem;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.faction-flag-preview svg path {
+    transition: fill 0.4s ease;
+}
+
+.faction-flag-preview:hover {
+    transform: scale(1.1) rotate(-5deg);
+}
+
+.color-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.custom-picker-btn {
+    background: conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red);
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.color-swatch:hover, .custom-picker-btn:hover {
+    transform: scale(1.15);
+    border-color: #fff;
+    box-shadow: 0 0 10px rgba(255,255,255,0.3);
+}
+
+.color-swatch.selected {
+    border-color: #fff;
+    transform: scale(1.1);
+    box-shadow: 0 0 8px rgba(255,255,255,0.5);
+}
+
+
+.color-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(255,255,255,0.5);
+}
+
+.color-swatch.selected {
+    border-color: #fff;
+    box-shadow: 0 0 10px rgba(255,255,255,0.5);
+}
+
 .gamertag-tag {
     display: flex;
     justify-content: space-between;

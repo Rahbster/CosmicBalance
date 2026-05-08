@@ -10,6 +10,7 @@ export class InteractionService {
         this.isPanning = false;
         this.panStart = { x: 0, y: 0 };
         this.mouseStart = { x: 0, y: 0 };
+        this.dragDistance = 0;
 
         this.pressTimer = null;
         this.isLongPress = false;
@@ -25,233 +26,25 @@ export class InteractionService {
         this.canvas.addEventListener('mousedown', (e) => {
             this.lastMouseEvent = e;
             this.isLongPress = false;
+            this.dragDistance = 0;
 
-            const coords = this.getMousePos(e);
-            // Logging moved to only fire when a pan starts
-            const { x, y } = coords;
-
-            // --- Updated Selection Logic ---
-            // Find all potential targets under the mouse click to select the closest one.
-            // Scale click radius by zoom to ensure ships are clickable when zoomed out
-            const minScreenRadius = 15;
-            const worldClickRadius = Math.max(15, minScreenRadius / this.engine.camera.zoom);
-            const SHIP_CLICK_RADIUS_SQ = worldClickRadius * worldClickRadius;
-
-            const viewingPlayerIds = this.engine.getViewingPlayerIds();
-            const isHostGodView = this.engine.isHost && this.engine.hostView.mode === 'god';
-
-            // --- Fleet Detection ---
-            // Group ships by fleet to calculate centroids (matching RenderService logic)
-            const fleets = {};
-            this.state.ships.forEach(s => {
-                if (s.fleetId && (isHostGodView || viewingPlayerIds.includes(s.owner))) {
-                    if (!fleets[s.fleetId]) fleets[s.fleetId] = [];
-                    fleets[s.fleetId].push(s);
-                }
-            });
-
-            const clickedFleets = [];
-            Object.values(fleets).forEach(ships => {
-                if (ships.length === 0) return;
-                
-                let cx, cy;
-                let tx = 0, ty = 0;
-                ships.forEach(s => { tx += s.x; ty += s.y; });
-                cx = tx / ships.length;
-                cy = ty / ships.length;
-                
-                const dx = cx - x;
-                const dy = cy - y;
-                if ((dx*dx + dy*dy) < SHIP_CLICK_RADIUS_SQ) {
-                    clickedFleets.push({ id: ships[0].fleetId, ships: ships, x: cx, y: cy });
-                }
-            });
-
-            const clickedShips = this.state.ships.filter(s => {
-                if (!isHostGodView && !viewingPlayerIds.includes(s.owner)) return false;
-                const dx = s.x - x;
-                const dy = s.y - y;
-                return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ;
-            });
-
-            const clickedSystems = this.state.systems.filter(p => {
-                const visibility = viewingPlayerIds.some(id => p.visibility[id] === 'explored' || p.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
-                if (!isHostGodView && (!visibility || visibility === 'unexplored')) return false;
-                const dx = p.x - x;
-                const dy = p.y - y;
-                const clickRadius = this.engine.spatialService.getSystemEffectiveRadius(p);
-                return (dx * dx + dy * dy) < (clickRadius * clickRadius);
-            });
-
-            const clickedDebris = this.state.debrisFields.filter(d => { // NEW
-                // Visibility check for debris
-                const isVisible = isHostGodView || this.state.systems.some(sys => {
-                    const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
-                    if (!visibility || visibility === 'unexplored') return false;
-                    const dx = sys.x - d.x;
-                    const dy = sys.y - d.y;
-                    return (dx * dx + dy * dy) < (200 * 200); // Generous visibility radius
-                });
-                if (!isVisible) return false;
-
-                const dx = d.x - x;
-                const dy = d.y - y;
-                return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ; // Use same scaled radius for debris
-            });
-
-            const clickedPlanets = [];
-            this.state.systems.forEach(sys => {
-                const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
-                if (!isHostGodView && (!visibility || visibility === 'unexplored')) return;
-
-                const effRadius = this.engine.spatialService.getSystemEffectiveRadius(sys);
-                const dx = sys.x - x;
-                const dy = sys.y - y;
-                if (dx*dx + dy*dy > effRadius * effRadius) return;
-
-                if (sys.planets) {
-                    const r = sys.r;
-                    const orbitBase = r + 10;
-                    const planetGap = 8;
-                    
-                    sys.planets.forEach((planet, i) => {
-                        const angle = (this.engine.state.gameTime / 10000 + i) % (Math.PI * 2);
-                        const semiMajor = orbitBase + (i * planetGap);
-                        const semiMinor = semiMajor * 0.65;
-                        const tilt = ((sys.x + sys.y) % 360) * (Math.PI / 180);
-
-                        const px = sys.x + (Math.cos(angle) * semiMajor * Math.cos(tilt) - Math.sin(angle) * semiMinor * Math.sin(tilt));
-                        const py = sys.y + (Math.cos(angle) * semiMajor * Math.sin(tilt) + Math.sin(angle) * semiMinor * Math.cos(tilt));
-
-                        const pRadius = (PLANET_TYPES[planet.type]?.radius || 3);
-                        const hitRadius = Math.max(pRadius + 2, 10 / this.engine.camera.zoom); 
-                        const clickDistSq = (px - x)**2 + (py - y)**2;
-                        
-                        if (clickDistSq <= hitRadius * hitRadius) {
-                            clickedPlanets.push({ type: 'planet', entity: planet });
-                        }
-                    });
-                }
-            });
-
-            const allTargets = [
-                ...clickedFleets.map(f => ({ type: 'fleet', entity: f })),
-                ...clickedShips.map(s => ({ type: 'ship', entity: s })),
-                ...clickedPlanets.map(p => ({ type: 'planet', entity: p.entity })),
-                ...clickedSystems.map(s => ({ type: 'system', entity: s })),
-                ...clickedDebris.map(d => ({ type: 'debris', entity: d }))
-            ];
-
-            allTargets.forEach(target => {
-                const dx = target.entity.x - x;
-                const dy = target.entity.y - y;
-                target.distSq = dx * dx + dy * dy;
-            });
-            
-            // Sort by distance to find the best target, but allow fall-through
-            allTargets.sort((a, b) => a.distSq - b.distSq);
-
-            for (const target of allTargets) {
-                const selectedShipId = this.engine.selectionManager.selectedShipId;
-                const clickedShipIsSelected = selectedShipId && target.type === 'ship' && target.entity.id === selectedShipId;
-
-                // If a ship is already selected and we click on that *same* ship,
-                // check if there's a system underneath it that we should prioritize instead (de-selection).
-                if (clickedShipIsSelected) {
-                    const systemUnderneath = clickedSystems.find(s => s.id !== target.entity.currentSystemId); // Try to find a system
-                    if (systemUnderneath) {
-                        // We clicked the selected ship, but there's a system here.
-                        // Treat this click as a click on the system.
-                        this.engine.selectionManager.setSelectedLocation(systemUnderneath.id);
-                        return;
-                    }
-                }
-
-                if (target.type === 'fleet') {
-                    // If a fleet is clicked, select the first ship to trigger fleet-wide logic
-                    const fleetObj = target.entity;
-                    const ship = fleetObj.ships[0];
-                    
-                    this.engine.selectionManager.setSelectedShip(ship.id);
-                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
-                        detail: { entity: ship, x: e.clientX, y: e.clientY } 
-                    }));
-                    return;
-                } else if (target.type === 'ship') {
-                    const ship = target.entity;
-                    const isOwner = ship.owner === this.engine.getIdentity().guid;
-                    const isGod = this.engine.isHost && this.engine.hostView.mode === 'god';
-                    
-                    if (isOwner || isGod) {
-                        if (ship.isStation) {
-                            // If it's a station, treat it as a location to show build menus etc.
-                            this.engine.selectionManager.setSelectedLocation(ship.id);
-                        } else {
-                            this.engine.selectionManager.setSelectedShip(ship.id);
-                        }
-                    }
-                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
-                        detail: { entity: ship, x: e.clientX, y: e.clientY } 
-                    }));
-                    return; // Stop processing if we handled a ship
-                } else if (target.type === 'system') {
-                    const system = target.entity;
-                    let moveSuccessful = false;
-
-                    if (selectedShipId) {
-                        const ship = this.state.ships.find(s => s.id === selectedShipId);
-                        // Don't try to move stations (hex structures)
-                        if (ship && !ship.isStation) {
-                            moveSuccessful = this.engine.moveShipToTarget(selectedShipId, system.id);
-                        }
-                    }
-
-                    if (!moveSuccessful) {
-                        this.engine.selectionManager.setSelectedLocation(system.id);
-                        
-                        // Only show radial menu if clicking the star itself
-                        const dx = system.x - x;
-                        const dy = system.y - y;
-                        if ((dx * dx + dy * dy) <= (system.r + 5) * (system.r + 5)) {
-                            this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
-                                detail: { entity: system, x: e.clientX, y: e.clientY } 
-                            }));
-                        }
-                    }
-                    return; // Stop processing if we handled a system
-                } else if (target.type === 'planet') {
-                    const planet = target.entity;
-                    this.engine.selectionManager.setSelectedLocation(planet.id);
-                    this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
-                        detail: { entity: planet, x: e.clientX, y: e.clientY } 
-                    }));
-                    return;
-                } else if (target.type === 'debris') {
-                    const debris = target.entity;
-                    if (selectedShipId) {
-                        // moveShipToTarget will validate if the ship is a salvager
-                        const moveSuccess = this.engine.moveShipToTarget(selectedShipId, debris.id);
-                        if (moveSuccess) return; // Only stop if the move command was valid (i.e., it was a Salvager)
-                    }
-                    // If not a salvager, or no ship selected, fall through to the next target (e.g., the system underneath)
-                }
-            }
-
-            this.engine.camera.stopAnimation(true); // Stop animation but trigger callback to ensure game flow continues
+            this.engine.camera.stopAnimation(true);
             this.isPanning = true;
             this.panStart = { x: this.engine.camera.pan.x, y: this.engine.camera.pan.y };
             this.mouseStart = { x: e.clientX, y: e.clientY };
             this.canvas.style.cursor = 'grabbing';
-            this.engine.logDiagnostics('pan start', e, coords);
         });
 
         this.canvas.addEventListener('mousemove', (e) => {
             this.lastMouseEvent = e;
             if (this.isPanning) {
-                // Logging removed from mousemove to avoid spam
                 const dx = e.clientX - this.mouseStart.x;
                 const dy = e.clientY - this.mouseStart.y;
-                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) clearTimeout(this.pressTimer); // Cancel long press if panning
+                // Track total movement to distinguish clicks from drags
+                this.dragDistance += Math.sqrt(dx * dx + dy * dy);
+                
+                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) clearTimeout(this.pressTimer);
+                
                 this.engine.camera.pan.x = this.panStart.x + dx;
                 this.engine.camera.pan.y = this.panStart.y + dy;
                 this.engine.camera.constrainPanAndZoom();
@@ -261,19 +54,18 @@ export class InteractionService {
         const endPan = (e) => {
             clearTimeout(this.pressTimer);
             if (this.isLongPress) {
-                e.preventDefault(); // Prevent the click from also selecting/moving
+                e.preventDefault();
                 return;
             }
 
             if (this.isPanning) {
-                const coords = this.getMousePos(e);
-                this.engine.logDiagnostics('pan end', e, coords);
-
                 const dx = e.clientX - this.mouseStart.x;
                 const dy = e.clientY - this.mouseStart.y;
-                if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
-                    this.engine.selectionManager.setSelectedShip(null);
-                    this.engine.selectionManager.setSelectedLocation(null);
+                const totalDist = Math.sqrt(dx * dx + dy * dy);
+
+                // If we didn't drag much, treat it as a click/interaction
+                if (totalDist < 5) {
+                    this.handleInteraction(e);
                 }
 
                 this.isPanning = false;
@@ -319,18 +111,203 @@ export class InteractionService {
 
             this.zoomEndTimeout = setTimeout(() => {
                 this.isZooming = false;
-                // Use the last known mouse event for coordinates
                 const coordsAfter = this.getMousePos(this.lastMouseEvent);
                 this.engine.logDiagnostics('zoom end', this.lastMouseEvent, coordsAfter);
-            }, 200); // 200ms delay to consider the zoom action ended
+            }, 200);
         });
 
         this.canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-        // Touch handling
         this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
         this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
         this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
+    }
+
+    handleInteraction(e) {
+        const coords = this.getMousePos(e);
+        const { x, y } = coords;
+
+        const minScreenRadius = 15;
+        const worldClickRadius = Math.max(15, minScreenRadius / this.engine.camera.zoom);
+        const SHIP_CLICK_RADIUS_SQ = worldClickRadius * worldClickRadius;
+
+        const viewingPlayerIds = this.engine.getViewingCommanderIds();
+        const isHostGodView = this.engine.isHost && this.engine.hostView.mode === 'god';
+
+        // --- Fleet Detection ---
+        const fleets = {};
+        this.state.ships.forEach(s => {
+            if (s.fleetId && (isHostGodView || viewingPlayerIds.includes(s.owner))) {
+                if (!fleets[s.fleetId]) fleets[s.fleetId] = [];
+                fleets[s.fleetId].push(s);
+            }
+        });
+
+        const clickedFleets = [];
+        Object.values(fleets).forEach(ships => {
+            if (ships.length === 0) return;
+            let tx = 0, ty = 0;
+            ships.forEach(s => { tx += s.x; ty += s.y; });
+            const cx = tx / ships.length;
+            const cy = ty / ships.length;
+            const dx = cx - x;
+            const dy = cy - y;
+            if ((dx*dx + dy*dy) < SHIP_CLICK_RADIUS_SQ) {
+                clickedFleets.push({ id: ships[0].fleetId, ships: ships, x: cx, y: cy });
+            }
+        });
+
+        const clickedShips = this.state.ships.filter(s => {
+            if (!isHostGodView && !viewingPlayerIds.includes(s.owner)) return false;
+            const dx = s.x - x;
+            const dy = s.y - y;
+            return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ;
+        });
+
+        const clickedSystems = this.state.systems.filter(p => {
+            const visibility = viewingPlayerIds.some(id => p.visibility[id] === 'explored' || p.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
+            if (!isHostGodView && (!visibility || visibility === 'unexplored')) return false;
+            const dx = p.x - x;
+            const dy = p.y - y;
+            const clickRadius = this.engine.spatialService.getSystemEffectiveRadius(p);
+            return (dx * dx + dy * dy) < (clickRadius * clickRadius);
+        });
+
+        const clickedDebris = this.state.debrisFields.filter(d => {
+            const isVisible = isHostGodView || this.state.systems.some(sys => {
+                const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
+                if (!visibility || visibility === 'unexplored') return false;
+                const dx = sys.x - d.x;
+                const dy = sys.y - d.y;
+                return (dx * dx + dy * dy) < (200 * 200);
+            });
+            if (!isVisible) return false;
+            const dx = d.x - x;
+            const dy = d.y - y;
+            return (dx * dx + dy * dy) < SHIP_CLICK_RADIUS_SQ;
+        });
+
+        const clickedPlanets = [];
+        this.state.systems.forEach(sys => {
+            const visibility = viewingPlayerIds.some(id => sys.visibility[id] === 'explored' || sys.visibility[id] === 'scouted') ? 'explored' : 'unexplored';
+            if (!isHostGodView && (!visibility || visibility === 'unexplored')) return;
+
+            const effRadius = this.engine.spatialService.getSystemEffectiveRadius(sys);
+            const dx = sys.x - x;
+            const dy = sys.y - y;
+            if (dx*dx + dy*dy > effRadius * effRadius) return;
+
+            if (sys.planets) {
+                const r = sys.r;
+                const orbitBase = r + 10;
+                const planetGap = 8;
+                sys.planets.forEach((planet, i) => {
+                    const angle = (this.engine.state.gameTime / 10000 + i) % (Math.PI * 2);
+                    const semiMajor = orbitBase + (i * planetGap);
+                    const semiMinor = semiMajor * 0.65;
+                    const tilt = ((sys.x + sys.y) % 360) * (Math.PI / 180);
+                    const px = sys.x + (Math.cos(angle) * semiMajor * Math.cos(tilt) - Math.sin(angle) * semiMinor * Math.sin(tilt));
+                    const py = sys.y + (Math.cos(angle) * semiMajor * Math.sin(tilt) + Math.sin(angle) * semiMinor * Math.cos(tilt));
+                    const pRadius = (PLANET_TYPES[planet.type]?.radius || 3);
+                    const hitRadius = Math.max(pRadius + 2, 10 / this.engine.camera.zoom); 
+                    const clickDistSq = (px - x)**2 + (py - y)**2;
+                    if (clickDistSq <= hitRadius * hitRadius) {
+                        clickedPlanets.push({ type: 'planet', entity: planet });
+                    }
+                });
+            }
+        });
+
+        const allTargets = [
+            ...clickedFleets.map(f => ({ type: 'fleet', entity: f })),
+            ...clickedShips.map(s => ({ type: 'ship', entity: s })),
+            ...clickedPlanets.map(p => ({ type: 'planet', entity: p.entity })),
+            ...clickedSystems.map(s => ({ type: 'system', entity: s })),
+            ...clickedDebris.map(d => ({ type: 'debris', entity: d }))
+        ];
+
+        allTargets.forEach(target => {
+            const dx = target.entity.x - x;
+            const dy = target.entity.y - y;
+            target.distSq = dx * dx + dy * dy;
+        });
+        
+        allTargets.sort((a, b) => a.distSq - b.distSq);
+
+        for (const target of allTargets) {
+            const selectedShipId = this.engine.selectionManager.selectedShipId;
+            const clickedShipIsSelected = selectedShipId && target.type === 'ship' && target.entity.id === selectedShipId;
+
+            if (clickedShipIsSelected) {
+                const systemUnderneath = clickedSystems.find(s => s.id !== target.entity.currentSystemId);
+                if (systemUnderneath) {
+                    this.engine.selectionManager.setSelectedLocation(systemUnderneath.id);
+                    return;
+                }
+            }
+
+            if (target.type === 'fleet') {
+                const fleetObj = target.entity;
+                const ship = fleetObj.ships[0];
+                this.engine.selectionManager.setSelectedShip(ship.id);
+                this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                    detail: { entity: ship, x: e.clientX, y: e.clientY } 
+                }));
+                return;
+            } else if (target.type === 'ship') {
+                const ship = target.entity;
+                const isOwner = ship.owner === this.engine.getIdentity().guid;
+                const isGod = this.engine.isHost && this.engine.hostView.mode === 'god';
+                if (isOwner || isGod) {
+                    if (ship.isStation) {
+                        this.engine.selectionManager.setSelectedLocation(ship.id);
+                    } else {
+                        this.engine.selectionManager.setSelectedShip(ship.id);
+                    }
+                }
+                this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                    detail: { entity: ship, x: e.clientX, y: e.clientY } 
+                }));
+                return;
+            } else if (target.type === 'system') {
+                const system = target.entity;
+                let moveSuccessful = false;
+                if (selectedShipId) {
+                    const ship = this.state.ships.find(s => s.id === selectedShipId);
+                    if (ship && !ship.isStation) {
+                        moveSuccessful = this.engine.moveShipToTarget(selectedShipId, system.id);
+                    }
+                }
+                if (!moveSuccessful) {
+                    this.engine.selectionManager.setSelectedLocation(system.id);
+                    const dx = system.x - x;
+                    const dy = system.y - y;
+                    if ((dx * dx + dy * dy) <= (system.r + 5) * (system.r + 5)) {
+                        this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                            detail: { entity: system, x: e.clientX, y: e.clientY } 
+                        }));
+                    }
+                }
+                return;
+            } else if (target.type === 'planet') {
+                const planet = target.entity;
+                this.engine.selectionManager.setSelectedLocation(planet.id);
+                this.canvas.dispatchEvent(new CustomEvent('showradialmenu', { 
+                    detail: { entity: planet, x: e.clientX, y: e.clientY } 
+                }));
+                return;
+            } else if (target.type === 'debris') {
+                const debris = target.entity;
+                if (selectedShipId) {
+                    const moveSuccess = this.engine.moveShipToTarget(selectedShipId, debris.id);
+                    if (moveSuccess) return;
+                }
+            }
+        }
+
+        // If nothing was clicked, clear selection
+        this.engine.selectionManager.setSelectedShip(null);
+        this.engine.selectionManager.setSelectedLocation(null);
     }
 
     handleTouchStart(e) {
@@ -424,14 +401,12 @@ export class InteractionService {
 
         if (shipsUnderCursor.length === 0) return null;
 
-        // 1. Prioritize currently selected ship/station to ensure menu matches selection
         const currentSelectionId = this.engine.selectionManager.selectedShipId || this.engine.selectionManager.selectedLocationId;
         if (currentSelectionId) {
             const selected = shipsUnderCursor.find(s => s.id === currentSelectionId);
             if (selected) return selected;
         }
 
-        // 2. Otherwise return the closest one (closest to the center of the click)
         return shipsUnderCursor.reduce((closest, current) => {
             const dx = current.x - worldX;
             const dy = current.y - worldY;

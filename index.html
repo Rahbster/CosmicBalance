@@ -2,12 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Cosmic Balance</title>
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#ffffff">
+    <meta name="theme-color" content="#0b0d10">
     
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+
     <!-- Styles -->
+    <link rel="stylesheet" href="css/theme.css">
+    <link rel="stylesheet" href="css/lobby.css">
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/peer.css">
 
@@ -16,65 +23,33 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js').then(registration => {
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
-
-                    registration.addEventListener('updatefound', () => {
-                        const newWorker = registration.installing;
-                        newWorker.addEventListener('statechange', () => {
-                            if (newWorker.state === 'installed') {
-                                if (navigator.serviceWorker.controller) {
-                                    // New update available
-                                    if (window.toastManager) {
-                                        window.toastManager.show('New update available! Please refresh.', 'info', 5000);
-                                    } else {
-                                        console.log('New update available! Please refresh.');
-                                    }
-                                } else {
-                                    console.log('Content is cached for offline use.');
-                                }
-                            }
-                        });
-                    });
+                    console.log('ServiceWorker registration successful');
                 }, err => {
                     console.log('ServiceWorker registration failed: ', err);
                 });
             });
         }
     </script>
-    <style>
-        /* Header Toggle Transitions */
-        .app-header {
-            transition: margin-top 0.3s ease-in-out;
-        }
-        body.fullscreen-mode .app-header {
-            margin-top: -70px; /* Hide header */
-        }
-        /* Adjust resource display when header is hidden */
-        body.fullscreen-mode .resource-display {
-            top: 10px !important;
-            transition: top 0.3s ease-in-out;
-        }
-        .resource-display {
-            transition: top 0.3s ease-in-out;
-        }
-        /* Toggle Handles */
-        body.fullscreen-mode #show-header-handle { transform: translateX(-50%) translateY(0) !important; }
-        body.fullscreen-mode #hide-header-handle { transform: translateX(-50%) translateY(-100%) !important; }
-    </style>
 </head>
-<body>
+<body class="dark">
     <div id="app">
-        <!-- Handle to show header when hidden -->
-        <div id="show-header-handle" title="Show Header" style="position: fixed; top: 0; left: 50%; transform: translateX(-50%) translateY(-100%); z-index: 200; background: rgba(0, 20, 30, 0.9); border: 1px solid rgba(0, 242, 255, 0.3); border-top: none; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; padding: 2px 15px; cursor: pointer; color: #00f2ff; font-size: 12px; transition: transform 0.3s ease-in-out; box-shadow: 0 2px 10px rgba(0,0,0,0.5);">▼</div>
-        
-        <!-- Handle to hide header (visible by default) -->
-        <div id="hide-header-handle" title="Hide Header" style="position: fixed; top: 0; left: 50%; transform: translateX(-50%) translateY(0); z-index: 200; background: rgba(0, 20, 30, 0.9); border: 1px solid rgba(0, 242, 255, 0.3); border-top: none; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; padding: 2px 15px; cursor: pointer; color: #00f2ff; font-size: 12px; transition: transform 0.3s ease-in-out; box-shadow: 0 2px 10px rgba(0,0,0,0.5);">▲</div>
-
-        <!-- Top Navigation / Header -->
-        <header class="app-header">
+        <!-- TOP HEADER (Game Only) -->
+        <header class="app-header hidden" id="game-header">
             <button id="hamburger-btn" aria-label="Open Menu">☰</button>
             <h1>Cosmic Balance</h1>
             <div id="connection-status" class="connection-status disconnected" title="Disconnected"></div>
+            
+            <div id="host-view-controls" class="hidden" style="display: flex; align-items: center; gap: 10px; margin-left: 15px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 15px;">
+                <select id="host-view-select" style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">
+                    <option value="god">Spectator (God View)</option>
+                    <option value="player">Single Player View</option>
+                    <option value="faction">Faction View</option>
+                </select>
+                <select id="host-faction-select" class="hidden" style="background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">
+                    <!-- Populated by JS -->
+                </select>
+            </div>
+
             <div id="header-controls" class="hidden" style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
                 <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.3); padding: 4px 10px; border-radius: 15px;">
                     <span style="font-size: 0.8rem; color: #aaa;">Speed</span>
@@ -85,126 +60,127 @@
             </div>
         </header>
 
-        <!-- Side Navigation Panel -->
+        <!-- LOBBY SCREEN (Initial View) -->
+        <section id="lobby-screen" class="screen">
+            <div class="lobby-background">
+                <div class="stars"></div>
+                <div class="twinkle"></div>
+            </div>
+            
+            <header class="lobby-header">
+                <button id="lobby-hamburger-btn" class="icon-btn" title="Settings">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <div class="lobby-title-area">
+                    <h1 class="orbitron">Cosmic<span class="highlight">Balance</span></h1>
+                    <p class="subtitle">Tactical Space Strategy</p>
+                </div>
+                <button id="btn-open-radar" class="icon-btn" title="Friends Radar">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--primary-color)" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <circle cx="12" cy="12" r="6"></circle>
+                        <circle cx="12" cy="12" r="2"></circle>
+                        <line x1="12" y1="2" x2="12" y2="22"></line>
+                        <line x1="2" y1="12" x2="22" y2="12"></line>
+                    </svg>
+                </button>
+            </header>
+
+            <div class="lobby-carousel-viewport">
+                <!-- 3D Carousel Injected Here by JS -->
+                <div id="main-lobby-carousel" class="stellar-carousel"></div>
+                
+                <div class="lobby-carousel-controls">
+                    <button id="lobby-prev-btn" class="icon-btn" title="Previous">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 18l-6-6 6-6"></path></svg>
+                    </button>
+                    <div id="lobby-dot-nav" class="stellar-nav"></div>
+                    <button id="lobby-next-btn" class="icon-btn" title="Next">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 6l6 6-6 6"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SIDENAV (Drawer for Settings) -->
         <div id="sidenav" class="sidenav">
             <a href="javascript:void(0)" class="closebtn" id="close-sidenav-btn">&times;</a>
-            <h2>Settings</h2>
+            <h2 class="orbitron">Settings</h2>
             <div class="sidenav-item">
                 <button id="btn-install-pwa" style="width: 100%; margin-bottom: 0.5rem;" class="hidden">Install App</button>
-                <button id="btn-open-peer-modal" style="width: 100%;">Connect to Peer</button>
-                <button id="btn-open-game-setup-modal" style="width: 100%; margin-top: 0.5rem;">Game Setup</button>
-                <button id="btn-open-chat" style="width: 100%; margin-top: 0.5rem;" disabled>
-                    Quick Chat <span id="chat-badge" class="badge hidden">0</span>
-                </button>
-                <button id="btn-open-logging-modal" style="width: 100%; margin-top: 0.5rem;">Logging Settings</button>
+                <button id="btn-open-peer-modal" style="width: 100%;">Connection Settings</button>
+                <button id="design-lab-btn" style="width: 100%; margin-top: 0.5rem; border: 1px solid #00ffff; color: #00ffff;">Ship Design Lab</button>
+                <button id="btn-open-logging-modal" style="width: 100%; margin-top: 0.5rem;">Logging Console</button>
+                <button id="btn-transfer-host" class="hidden" style="width: 100%; margin-top: 0.5rem; background-color: var(--secondary-color); color: white;">Transfer Command</button>
             </div>
             <hr style="margin: 0.5rem 2rem; border: 0; border-top: 1px solid var(--border-color);">
             <div class="sidenav-item">
-                <label for="settings-name">Display Name:</label>
-                <input type="text" id="settings-name" placeholder="Enter your name">
+                <label for="settings-name">Commander Name:</label>
+                <input type="text" id="settings-name" placeholder="Enter name">
             </div>
             <div class="sidenav-item">
-                <span>Theme</span>
+                <span>Interface Theme</span>
                 <button id="theme-toggle" aria-label="Toggle Theme">🌓</button>
             </div>
+            <input type="color" id="hidden-custom-color" class="hidden">
+            <hr style="margin: 0.5rem 2rem; border: 0; border-top: 1px solid var(--border-color);">
             <div class="sidenav-item">
-                <label for="faction-name-input">Faction Name:</label>
-                <input type="text" id="faction-name-input" placeholder="Enter faction name">
-            </div>
-            <div class="sidenav-item">
-                <label for="team-select">Tech Base:</label>
-                <select id="team-select" style="width: 100%; padding: 0.5rem;">
-                    <option value="UNSC">UNSC</option>
-                    <option value="COVENANT">Covenant</option>
-                </select>
-            </div>
-            <div class="sidenav-item">
-                <label>Faction Color:</label>
-                <div id="faction-color-picker" class="color-picker">
-                    <!-- Color swatches will be injected here by JS -->
-                </div>
-            </div>
-            <div id="host-view-controls" class="sidenav-item hidden">
-                <h4>Host View</h4>
-                <select id="host-view-select">
-                    <option value="player" selected>Player View</option>
-                    <option value="god">God View (See All)</option>
-                    <option value="faction">Faction View</option>
-                </select>
-                <select id="host-faction-select" class="hidden" style="margin-top: 0.5rem;"></select>
+                <h3 class="orbitron" style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--primary-color);">Radar Database</h3>
+                <ul id="sidenav-friends-list" style="list-style: none; padding: 0; margin: 0; font-size: 0.9rem; max-height: 200px; overflow-y: auto;">
+                    <!-- Populated by JS -->
+                </ul>
             </div>
         </div>
         <div id="overlay" class="overlay"></div>
 
-        <!-- Main Content Area -->
-        <main id="main-content">
-            <section id="view-settings" class="view hidden">
-                <h2>Settings</h2>
-                <p>Application configuration.</p>
-            </section>
-
-            <section id="view-game" class="view active">
-                <div id="resource-display" class="resource-display">
-                    <div id="resource-list"></div>
-                    <hr style="width: 100%; border: 0; border-top: 1px solid rgba(0, 242, 255, 0.3); margin: 5px 0;">
-                    <!-- System counts by participant will be injected here -->
-                    <div id="system-list" style="display: flex; flex-direction: column; width: 100%;"></div>
-                </div>
-                <div id="selected-planet-info" class="hidden" style="background: var(--surface-color); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border-color);">
-                    <!-- Selected planet info will be rendered here by game-engine.js -->
-                </div>
-                <button id="btn-open-ship-designer" class="theme-button" style="position: absolute; bottom: 60px; right: 20px; z-index: 100;">Ship Designer</button>
-                <button id="about-btn-main" class="theme-button" style="position: absolute; bottom: 20px; right: 20px; z-index: 100;">About</button>
-                <canvas id="game-canvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; background-color: #0b0d10;"></canvas>
-            </section>
+        <!-- GAME VIEW -->
+        <main id="game-view" class="hidden">
+            <div id="resource-display" class="resource-display">
+                <div id="resource-list"></div>
+                <hr style="width: 100%; border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
+                <div id="system-list" style="display: flex; flex-direction: column; width: 100%;"></div>
+            </div>
+            <div id="selected-planet-info" class="hidden"></div>
+            
+            <button id="btn-open-ship-designer" class="theme-button" style="position: absolute; bottom: 60px; right: 20px; z-index: 100;">Designer</button>
+            <button id="btn-return-to-lobby" class="theme-button" style="position: absolute; bottom: 20px; left: 20px; z-index: 100;">Lobby</button>
+            
+            <canvas id="game-canvas"></canvas>
         </main>
 
-        <!-- Chat Modal -->
+        <!-- MODALS -->
         <div id="chat-modal" class="modal hidden">
             <div class="modal-content">
                 <span id="close-chat-modal" class="close-modal">&times;</span>
-                <h2>Quick Chat</h2>
+                <h2 class="orbitron">Comms Channel</h2>
                 <div id="peer-chat">
                     <div id="messages"></div>
                     <div class="chat-input-area">
-                        <select id="chat-scope" style="width: 80px; padding: 0.5rem;">
+                        <select id="chat-scope">
                             <option value="GLOBAL">Global</option>
                             <option value="TEAM">Team</option>
                         </select>
-                        <input type="text" id="msg-input" placeholder="Type a message...">
+                        <input type="text" id="msg-input" placeholder="Type transmission...">
                         <button id="btn-send">Send</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Scout Report Modal -->
         <div id="scout-report-modal" class="modal hidden">
             <div class="modal-content">
                 <span id="close-scout-report-modal" class="close-modal">&times;</span>
-                <h2>Scout Report</h2>
-                <div id="scout-report-content">
-                    <!-- Scout report details will be rendered here -->
-                </div>
+                <h2 class="orbitron">Intel Report</h2>
+                <div id="scout-report-content"></div>
             </div>
         </div>
 
-        <!-- iOS Install Instructions Modal -->
-        <div id="ios-install-modal" class="modal hidden">
-            <div class="modal-content">
-                <span id="close-ios-install-modal" class="close-modal">&times;</span>
-                <h2>Install on iOS</h2>
-                <div style="text-align: center; padding: 20px;">
-                    <p>To install this app on your iPad or iPhone:</p>
-                    <p>1. Tap the <strong>Share</strong> button <span style="font-size: 1.5em;">📤</span> in your browser toolbar.</p>
-                    <p>2. Scroll down and tap <strong>Add to Home Screen</strong> <span style="font-size: 1.5em;">➕</span>.</p>
-                </div>
-            </div>
-        </div>
+        <!-- Toast Container -->
+        <div id="toast-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
     </div>
+
+    <!-- Scripts -->
+    <script src="js/vendor/peerjs.min.js"></script>
     <script type="module" src="js/app.js"></script>
-    <script type="module" src="js/modals/FleetManagerModal.js"></script>
-    <script type="module" src="js/modals/TechTreeModal.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </body>
 </html>

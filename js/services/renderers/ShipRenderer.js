@@ -3,6 +3,11 @@ export class ShipRenderer {
         this.ctx = ctx;
         this.engine = engine;
         this.spriteService = spriteService;
+        this.ctx = engine.ctx;
+        
+        // Sprite Cache for recolored assets
+        this.recolorCache = new Map();
+        this.lastFactionColor = '';
     }
 
     drawFleet(fleetId, ships) {
@@ -76,29 +81,36 @@ export class ShipRenderer {
              this.ctx.restore();
         }
 
-        this.ctx.fillStyle = color;
-        this.ctx.strokeStyle = '#FFF';
-        this.ctx.lineWidth = 1;
+        const fleetIcon = this.spriteService.getSprite(player ? player.techBase : 'Solaris', 'FleetIcon');
+        if (fleetIcon) {
+            const iconSize = 24;
+            this.ctx.drawImage(fleetIcon, -iconSize / 2, -iconSize / 2, iconSize, iconSize);
+        } else {
+            // Fallback to legacy chevrons
+            this.ctx.fillStyle = color;
+            this.ctx.strokeStyle = '#FFF';
+            this.ctx.lineWidth = 1;
 
-        // Main Chevron
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, -12);
-        this.ctx.lineTo(10, 8);
-        this.ctx.lineTo(0, 2);
-        this.ctx.lineTo(-10, 8);
-        this.ctx.closePath();
-        this.ctx.fill();
-        this.ctx.stroke();
+            // Main Chevron
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, -12);
+            this.ctx.lineTo(10, 8);
+            this.ctx.lineTo(0, 2);
+            this.ctx.lineTo(-10, 8);
+            this.ctx.closePath();
+            this.ctx.fill();
+            this.ctx.stroke();
 
-        // Second Chevron
-        this.ctx.beginPath();
-        this.ctx.moveTo(0, -2);
-        this.ctx.lineTo(10, 18);
-        this.ctx.lineTo(0, 12);
-        this.ctx.lineTo(-10, 18);
-        this.ctx.closePath();
-        this.ctx.fill();
-        this.ctx.stroke();
+            // Second Chevron
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, -2);
+            this.ctx.lineTo(10, 18);
+            this.ctx.lineTo(0, 12);
+            this.ctx.lineTo(-10, 18);
+            this.ctx.closePath();
+            this.ctx.fill();
+            this.ctx.stroke();
+        }
         
         // --- Visual Effects: Warp Bubble ---
         if (firstShip.targetId) {
@@ -155,9 +167,25 @@ export class ShipRenderer {
     }
 
     drawShip(ship) {
-        const sprite = this.spriteService.getSprite(ship.techBase, ship.type);
-        if (this.spriteService.isLoaded && sprite) {
-            this._drawShipSprite(ship, sprite);
+        // Support hull variations (e.g., SpaceStation_Bastion)
+        const spriteKey = ship.hullStyle ? `${ship.type}_${ship.hullStyle}` : ship.type;
+        const baseSprite = this.spriteService.getSprite(ship.techBase, spriteKey);
+        
+        if (this.spriteService.isLoaded && baseSprite) {
+            // Get Faction Color (Player's current color from state, falling back to ship's initial color)
+            const owner = this.engine.state.players.find(p => p.id === ship.owner);
+            const factionColor = owner ? owner.color : (ship.color || '#ff8800');
+
+            // Check Cache
+            const cacheKey = `${ship.techBase}_${spriteKey}_${factionColor}`;
+            let renderedSprite = this.recolorCache.get(cacheKey);
+
+            if (!renderedSprite) {
+                renderedSprite = this.spriteService.recolorSprite(baseSprite, ship.techBase, factionColor);
+                this.recolorCache.set(cacheKey, renderedSprite);
+            }
+
+            this._drawShipSprite(ship, renderedSprite);
         } else {
             this._drawShipShape(ship);
         }
@@ -182,12 +210,12 @@ export class ShipRenderer {
             }
             appliedRotation = rotation + Math.PI / 2;
         }
+        
         // Correction for 225-degree sprites (South-West facing)
         const SPRITE_CORRECTION = 3 * Math.PI / 4;
-        this.ctx.rotate(appliedRotation + SPRITE_CORRECTION);
-
+        
         const TARGET_SIZES = {
-            Fighter: 24, Scout: 32, TroopTransport: 32, Salvager: 28, Frigate: 48, SpaceStation: 64, default: 24
+            Fighter: 20, Scout: 16, TroopTransport: 24, Salvager: 22, Frigate: 32, Destroyer: 40, Cruiser: 48, SpaceStation: 22, default: 20
         };
         const targetSize = TARGET_SIZES[ship.type] || TARGET_SIZES.default;
         const maxDim = Math.max(sprite.width, sprite.height);
@@ -198,29 +226,42 @@ export class ShipRenderer {
 
         const radius = Math.sqrt(Math.pow(w / 2, 2) + Math.pow(h / 2, 2));
 
-        const THRUST_CORRECTION = 235 * Math.PI / 180;
-        this.ctx.rotate(THRUST_CORRECTION);
+        // Correction for North-facing PNGs (v3) vs 45-degree SVGs (v2)
+        const isV3 = (sprite instanceof HTMLCanvasElement) || (sprite.src && sprite.src.includes('_v3'));
+        const correction = isV3 ? 0 : SPRITE_CORRECTION;
+        this.ctx.rotate(appliedRotation + correction);
 
         // --- Visual Effects: Thrusters (Sublight) ---
-        if (ship.arrivalPoint && !ship.targetId) {
+        if ((ship.arrivalPoint || ship.targetId) && !ship.isStation) {
             this.ctx.save();
-            const startY = 0; // Start from center to avoid gap
-            const thrustLength = radius + (h * 0.5) + Math.random() * (h * 0.3); // Extend length to clear hull
-            const thrustWidth = w * 0.4;
-
-            this.ctx.globalCompositeOperation = 'lighter';
-            const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
-            grad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
-            grad.addColorStop(0.2, 'rgba(255, 200, 0, 0.8)');
-            grad.addColorStop(0.6, 'rgba(255, 69, 0, 0.4)');
-            grad.addColorStop(1, 'rgba(100, 0, 0, 0)');
-
-            this.ctx.fillStyle = grad;
-            this.ctx.beginPath(); this.ctx.moveTo(-thrustWidth / 2, startY); this.ctx.lineTo(0, startY + thrustLength); this.ctx.lineTo(thrustWidth / 2, startY); this.ctx.fill();
+            // If it was corrected for a diagonal sprite, we need to un-correct for the thrusters
+            if (!isV3) this.ctx.rotate(-correction); 
+            this._drawThrusters(ship, radius * 0.7);
             this.ctx.restore();
         }
 
-        this.ctx.rotate(-THRUST_CORRECTION);
+        // --- Visual Effects: Pulsing Glow ---
+        const zoom = this.engine.camera.zoom;
+        if (zoom > 1.5) {
+            const pulse = (Math.sin(Date.now() / 400) + 1) / 2;
+            this.ctx.save();
+            this.ctx.globalAlpha = 0.2 * pulse;
+            this.ctx.shadowBlur = 15 * pulse;
+            this.ctx.shadowColor = ship.techBase === 'Solaris' ? '#00f2ff' : '#d400ff';
+            this.ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+            this.ctx.restore();
+        }
+
+        // --- Realistic Depth: Drop Shadow (Stations Only) ---
+        if (ship.isStation) {
+            this.ctx.save();
+            this.ctx.shadowBlur = 8;
+            this.ctx.shadowColor = 'black';
+            this.ctx.shadowOffsetX = 3;
+            this.ctx.shadowOffsetY = 3;
+            this.ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+            this.ctx.restore();
+        }
 
         this.ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
 
@@ -306,24 +347,7 @@ export class ShipRenderer {
 
         // --- Visual Effects: Thrusters (Sublight) ---
         if (ship.arrivalPoint && !ship.targetId && !ship.isStation) {
-             this.ctx.save();
-             const thrustLength = 23 + Math.random() * 8; // Increased length
-             const thrustWidth = 6;
-             const startY = 0; // Start from center
-             
-             this.ctx.globalCompositeOperation = 'lighter';
-             const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
-             grad.addColorStop(0, 'rgba(255, 255, 200, 0.9)');
-             grad.addColorStop(0.3, 'rgba(255, 140, 0, 0.7)');
-             grad.addColorStop(1, 'rgba(255, 0, 0, 0)');
-
-             this.ctx.fillStyle = grad;
-             this.ctx.beginPath();
-             this.ctx.moveTo(-thrustWidth/2, startY);
-             this.ctx.lineTo(0, startY + thrustLength);
-             this.ctx.lineTo(thrustWidth/2, startY);
-             this.ctx.fill();
-             this.ctx.restore();
+             this._drawThrusters(ship, 0);
         }
 
         if (ship.isStation) {
@@ -339,7 +363,7 @@ export class ShipRenderer {
             // Ships
             this.ctx.beginPath();
 
-            if (ship.techBase === 'COVENANT') {
+            if (ship.techBase === 'Syndicate') {
                 if (ship.type === 'Fighter') {
                     this.ctx.moveTo(0, -8);
                     this.ctx.bezierCurveTo(6, 0, 6, 6, 0, 4);
@@ -520,7 +544,7 @@ export class ShipRenderer {
         this.ctx.shadowColor = `rgba(0, 190, 255, ${0.3 + pulse * 0.3})`;
         this.ctx.shadowBlur = 10 / zoom;
 
-        // Draw Forerunner-style background
+        // Draw Tactical-style background
         const chamfer = 8 / zoom;
         
         this.ctx.beginPath();
@@ -570,6 +594,47 @@ export class ShipRenderer {
             this.ctx.textAlign = 'left';
             this.ctx.fillText(type, blockX + maxCountWidth + colGap, y);
         });
+        this.ctx.restore();
+    }
+    _drawThrusters(ship, yOffset) {
+        this.ctx.save();
+        
+        // Adjust for deceleration: Flip thrusters to the front
+        let direction = 1;
+        let startY = yOffset;
+        
+        if (ship.isDecelerating) {
+            direction = -1; // Fire forward
+            startY = -yOffset;
+        }
+
+        const thrustLength = (23 + Math.random() * 8) * direction;
+        const thrustWidth = 6;
+        
+        this.ctx.globalCompositeOperation = 'lighter';
+        const grad = this.ctx.createLinearGradient(0, startY, 0, startY + thrustLength);
+        
+        // Colors based on faction
+        let coreColor = 'rgba(255, 255, 200, 0.9)';
+        let midColor = 'rgba(255, 140, 0, 0.7)';
+        let fadeColor = 'rgba(255, 0, 0, 0)';
+
+        if (ship.techBase === 'Syndicate') {
+            coreColor = 'rgba(200, 255, 255, 0.9)';
+            midColor = 'rgba(255, 0, 255, 0.7)';
+            fadeColor = 'rgba(100, 0, 100, 0)';
+        }
+
+        grad.addColorStop(0, coreColor);
+        grad.addColorStop(0.3, midColor);
+        grad.addColorStop(1, fadeColor);
+
+        this.ctx.fillStyle = grad;
+        this.ctx.beginPath();
+        this.ctx.moveTo(-thrustWidth/2, startY);
+        this.ctx.lineTo(0, startY + thrustLength);
+        this.ctx.lineTo(thrustWidth/2, startY);
+        this.ctx.fill();
         this.ctx.restore();
     }
 }

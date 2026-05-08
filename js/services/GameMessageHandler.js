@@ -62,6 +62,16 @@ export class GameMessageHandler {
             this.engine.state.debrisFields.push(data.debris);
         } else if (data.type === 'GAME_DEBRIS_REMOVED') {
             this.engine.state.debrisFields = this.engine.state.debrisFields.filter(d => !data.debrisIds.includes(d.id));
+        } else if (data.type === 'GAME_FACTION_UPDATE') {
+            const teammates = this.engine.state.players.filter(p => p.team === data.teamId);
+            teammates.forEach(p => {
+                if (data.update.factionName) {
+                    p.factionName = data.update.factionName;
+                    p.team = data.update.factionName;
+                }
+                if (data.update.color) p.color = data.update.color;
+            });
+            if (window.toastManager) window.toastManager.show(`Faction settings updated for ${data.teamId}.`, 'info');
         } else if (data.type === 'GAME_PLAYER_UPDATE') {
             const player = this.engine.state.players.find(p => p.id === data.playerId);
             if (player) {
@@ -96,6 +106,8 @@ export class GameMessageHandler {
             this.engine.economyService.handleResearchRequest(data);
         } else if (data.type === 'GAME_REQUEST_PLAYER_UPDATE') {
             this.engine.handlePlayerUpdateRequest(data);
+        } else if (data.type === 'GAME_REQUEST_FACTION_UPDATE') {
+            this.engine.handleFactionUpdateRequest(data);
         } else if (data.type === 'GAME_REQUEST_SCOUT_MISSION') {
             this.engine.movementService.handleScoutMissionRequest(data);
         } else if (data.type === 'GAME_REQUEST_EXPLORE_MISSION') {

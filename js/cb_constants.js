@@ -40,8 +40,8 @@ export const COMPONENTS = {
 
 export const DEFAULT_SHIP_DESIGNS = [
     {
-        id: 'default-enterprise',
-        name: 'Enterprise',
+        id: 'default-discovery',
+        name: 'Discovery',
         description: 'A well-rounded command cruiser with strong forward firepower and a marine detachment for strategic flexibility.',
         hull: 'sz4',
         components: [
@@ -56,8 +56,8 @@ export const DEFAULT_SHIP_DESIGNS = [
         shields: [21, 20, 20, 20, 20, 20, 20, 21]
     },
     {
-        id: 'default-reliant',
-        name: 'Reliant',
+        id: 'default-valiant',
+        name: 'Valiant',
         description: 'An aggressive gunship featuring all-around shields and versatile, 360-degree weapon arcs for brawling.',
         hull: 'sz4',
         components: [
@@ -71,8 +71,8 @@ export const DEFAULT_SHIP_DESIGNS = [
     },
     // --- Community Archetype Designs ---
     {
-        id: 'default-wasp',
-        name: 'Wasp Interceptor',
+        id: 'default-striker',
+        name: 'Striker Interceptor',
         description: 'A "Phaser Boat". A small, fast frigate packed with light phasers, designed to swarm and overwhelm larger targets.',
         hull: 'sz2', // Frigate
         components: [
@@ -83,8 +83,8 @@ export const DEFAULT_SHIP_DESIGNS = [
         shields: [10, 10, 5, 5, 5, 5, 10, 10]
     },
     {
-        id: 'default-longbow',
-        name: 'Longbow Destroyer',
+        id: 'default-ballista',
+        name: 'Ballista Destroyer',
         description: 'A "Missile Boat". This ship stays at range, using its large seeker racks to launch volleys of guided missiles.',
         hull: 'sz3', // Destroyer
         components: [
@@ -97,11 +97,11 @@ export const DEFAULT_SHIP_DESIGNS = [
         ],
         shields: [5, 5, 5, 5, 5, 5, 5, 5]
     },
-    // --- Halo Universe Inspired Designs ---
+    // --- Original CosmicBalance Designs ---
     {
-        id: 'default-unsc-paris',
-        name: 'UNSC Paris Frigate',
-        description: 'A tough, versatile frigate favoring armor and a mix of phasers and seekers. A reliable UNSC workhorse.',
+        id: 'default-solaris-frigate',
+        name: 'Solaris Frigate',
+        description: 'A tough, versatile frigate favoring armor and a mix of phasers and seekers. A reliable Solaris workhorse.',
         hull: 'sz2', // Frigate
         components: [
             { category: 'drives', id: 'dr1', count: 4 },
@@ -114,8 +114,8 @@ export const DEFAULT_SHIP_DESIGNS = [
         shields: [15, 12, 10, 8, 8, 10, 12, 15]
     },
     {
-        id: 'default-banished-marauder',
-        name: 'Banished Marauder',
+        id: 'default-syndicate-marauder',
+        name: 'Syndicate Marauder',
         description: 'An aggressive corvette built for brute-force raids. It closes the distance quickly to deliver a devastating plasma torpedo.',
         hull: 'sz1', // Corvette
         components: [
@@ -127,9 +127,9 @@ export const DEFAULT_SHIP_DESIGNS = [
         shields: [10, 8, 5, 5, 5, 5, 8, 10]
     },
     {
-        id: 'default-forerunner-bastion',
-        name: 'Forerunner Bastion',
-        description: 'A powerful Dreadnought reflecting superior Forerunner technology, featuring powerful weapons and strong shields.',
+        id: 'default-zenith-bastion',
+        name: 'Zenith Bastion',
+        description: 'A powerful Dreadnought reflecting superior Zenith technology, featuring powerful weapons and strong shields.',
         hull: 'sz5', // Dreadnought
         components: [
             { category: 'drives', id: 'dr1', count: 8 },
@@ -169,14 +169,13 @@ export const LOG_CATEGORIES = {
 };
 
 export const FACTION_COLORS = [
-    '#00A0C0', // Cyan
-    '#CC3333', // Red
-    '#33CC33', // Green
-    '#EFB82A', // Yellow
-    '#9400D3', // Purple
+    '#33CC33', // Tactical Green
+    '#CC3333', // Tactical Red
+    '#00BFFF', // Command Blue
+    '#FFD700', // Gold
     '#FF8C00', // Orange
-    '#FFFFFF', // White
-    '#FF69B4'  // Pink
+    '#9400D3', // Purple
+    '#FFFFFF'  // White (Default)
 ];
 
 export const RESOURCE_TYPES = [
@@ -185,3 +184,53 @@ export const RESOURCE_TYPES = [
     { key: 'energy', domId: 'res-energy', label: 'Energy', icon: '⚡', cssClass: 'icon-energy', title: 'Energy', threshold: 20 },
     { key: 'scrap', domId: 'res-scrap', label: 'Scrap', icon: '⚙️', cssClass: 'icon-scrap', title: 'Scrap' }
 ];
+
+export const AI_FACTION_NAMES = [
+    "The Obsidian Collective",
+    "Nebula Nomads",
+    "Astraeus Hegemony",
+    "Crimson Corsairs",
+    "Void Stalkers",
+    "Zenith Authority",
+    "Stellar Syndicate",
+    "Orion Enclave",
+    "Galactic Guardians",
+    "Solar Sovereignty",
+    "The Iron Phalanx",
+    "Midnight Republic",
+    "Aurora Federation",
+    "Shadow Sentinels",
+    "Ethereal Empire",
+    "Nova Coalition",
+    "Quantum Quorum",
+    "Titan Traders",
+    "Eternal Initiative",
+    "Pulsar Protectorate"
+];
+
+export const PIRATE_FACTION_NAMES = [
+    "Crimson Raiders",
+    "Void Reapers",
+    "Shadow Corsairs",
+    "Star Wolves",
+    "Nebula Scourge",
+    "The Black Fleet",
+    "Rift Ravagers"
+];
+
+export const HULL_STYLES = {
+    Solaris: [
+        { id: 'brushed', name: 'Brushed Metal', description: 'Standard industrial finish' },
+        { id: 'plated', name: 'Reinforced Plating', description: 'Heavy overlapping armor panels' },
+        { id: 'carbon', name: 'Carbon Fiber', description: 'High-tech composite weave' }
+    ],
+    Syndicate: [
+        { id: 'veined', name: 'Pulsing Veins', description: 'Living biological tissue' },
+        { id: 'chitin', name: 'Chitinous Shell', description: 'Hardened insectoid plates' },
+        { id: 'membrane', name: 'Etheric Membrane', description: 'Translucent energy-field skin' }
+    ],
+    Pirate: [
+        { id: 'rusted', name: 'Rusted Scrap', description: 'Corroded and scavenged metal' },
+        { id: 'patchwork', name: 'Patchwork Hull', description: 'Misc components welded together' }
+    ]
+};

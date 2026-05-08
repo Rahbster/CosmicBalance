@@ -153,9 +153,9 @@ export class MovementService {
                     if (travelDistance > 0 && dist > 0) {
                         ship.x += (dx / dist) * travelDistance;
                         ship.y += (dy / dist) * travelDistance;
-                        // Trace log for movement details
-                        // Update heading to face target
                         ship.heading = (Math.atan2(dy, dx) * 180 / Math.PI) + 90;
+                        ship.isAccelerating = true;
+                        ship.isDecelerating = false;
                         this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.TRACE, `Ship ${ship.id} WARP. Pos: (${ship.x.toFixed(1)}, ${ship.y.toFixed(1)}) Dist: ${dist.toFixed(1)}`);
                     }
                 } else { // Ship has arrived at the system's edge
@@ -283,6 +283,8 @@ export class MovementService {
                                 this.engine.broadcast({ type: 'GAME_REVEAL', systemId: arrivedAtSystem.id, playerId: ship.owner, visibility: 'explored' });
                             }
                         }
+                        ship.isAccelerating = false;
+                        ship.isDecelerating = false;
                     } else { // Arrived at debris
                         // Just broadcast the arrival, the salvage logic will be handled below in the idle check
                         this.engine.broadcast({ type: 'GAME_SHIP_UPDATE', shipId: ship.id, targetId: null, moveState: SHIP_STATE.IDLE, currentSystemId: null });
@@ -313,6 +315,11 @@ export class MovementService {
 
                 ship.x += (dx / dist) * travelDistance;
                 ship.y += (dy / dist) * travelDistance;
+
+                // Deceleration logic: if remaining distance is small relative to speed
+                const decelerationDistance = moveSpeed * 2.0; // 2 seconds of travel
+                ship.isDecelerating = dist < decelerationDistance;
+                ship.isAccelerating = !ship.isDecelerating;
 
                 // Update heading with interpolation towards final orbit heading
                 const moveAngle = Math.atan2(dy, dx);
@@ -349,6 +356,8 @@ export class MovementService {
                 ship.y = ship.arrivalPoint.y;
 
                 ship.moveState = SHIP_STATE.IDLE;
+                ship.isAccelerating = false;
+                ship.isDecelerating = false;
                 this.engine.loggingService.log(LOG_CATEGORIES.MOVEMENT, LOG_LEVELS.INFO, `Ship ${ship.id} reached sublight destination.`);
                 delete ship.arrivalPoint;
                 // The getCurrentSystem logic will now assign its sticky system ID

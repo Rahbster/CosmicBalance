@@ -40,6 +40,10 @@ export class BackgroundRenderer {
         const width = this.canvas.width;
         const height = this.canvas.height;
 
+        // Fill background with deep space color
+        this.ctx.fillStyle = '#05070a';
+        this.ctx.fillRect(0, 0, width, height);
+
         this.ctx.fillStyle = '#FFFFFF';
         this.stars.forEach(star => {
             // Parallax factor: smaller stars move slower (further away)

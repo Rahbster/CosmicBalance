@@ -167,8 +167,12 @@ export class EconomyService {
 
                     // 1. Start Repair
                     if (firstItem.startTime === undefined) {
+                        if (!owner) {
+                             location.buildQueue.shift();
+                             return;
+                        }
                         const needsRepair = ship.hull < ship.maxHull;
-                        const canUpgrade = owner.researchedTechs.length > (ship.vintageTechs?.length || 0);
+                        const canUpgrade = (owner.researchedTechs || []).length > (ship.vintageTechs?.length || 0);
                         const repairCost = needsRepair ? (ship.maxHull - ship.hull) * 0.5 : 0; // Scrap
                         const upgradeCost = canUpgrade ? 100 : 0; // IO
 

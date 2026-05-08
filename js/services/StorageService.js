@@ -1,7 +1,7 @@
+import { STORAGE_KEYS } from '../state.js';
+
 export class StorageService {
     constructor() {
-        this.appPrefix = 'pwa';
-        this.gamePrefix = 'cosmic_balance';
         this.lastSaveErrorTime = 0;
         this.saveErrorCooldown = 30000; // 30 seconds cooldown on error
     }
@@ -11,7 +11,13 @@ export class StorageService {
     getItem(key, defaultValue = null) {
         try {
             const item = localStorage.getItem(key);
-            return item ? JSON.parse(item) : defaultValue;
+            if (item === null) return defaultValue;
+            // Handle both JSON and raw strings
+            try {
+                return JSON.parse(item);
+            } catch (e) {
+                return item;
+            }
         } catch (e) {
             console.error(`[StorageService] Error getting item ${key}:`, e);
             return defaultValue;
@@ -20,14 +26,13 @@ export class StorageService {
 
     setItem(key, value) {
         try {
-            localStorage.setItem(key, JSON.stringify(value));
+            const valToStore = typeof value === 'string' ? value : JSON.stringify(value);
+            localStorage.setItem(key, valToStore);
             return true;
         } catch (e) {
             console.error(`[StorageService] Error setting item ${key}:`, e);
-            // Handle QuotaExceededError specifically if needed
             if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22) {
                 console.warn("[StorageService] Storage quota exceeded.");
-                return false;
             }
             return false;
         }
@@ -40,29 +45,21 @@ export class StorageService {
     // --- Game State ---
 
     getGameState() {
-        return this.getItem(`${this.gamePrefix}_gamestate`);
+        return this.getItem(STORAGE_KEYS.SAVED_GAME);
     }
 
     saveGameState(state) {
-        // Prevent spamming if we are in a quota exceeded state
-        if (Date.now() - this.lastSaveErrorTime < this.saveErrorCooldown) {
-            return false;
-        }
+        if (Date.now() - this.lastSaveErrorTime < this.saveErrorCooldown) return false;
 
-        // Try to save. If it fails due to quota, try to clear reports first.
-        if (!this.setItem(`${this.gamePrefix}_gamestate`, state)) {
+        if (!this.setItem(STORAGE_KEYS.SAVED_GAME, state)) {
             console.warn("[StorageService] Save failed. Attempting cleanup...");
-            this.removeItem(`${this.gamePrefix}_reports`);
-            
             // Aggressive cleanup: Remove combat logs from state copy
             const slimState = { ...state };
             if (slimState.combatLogHistory) {
                 delete slimState.combatLogHistory;
-                console.warn("[StorageService] Removing combat logs to save space.");
             }
 
-            // Try again
-            if (!this.setItem(`${this.gamePrefix}_gamestate`, slimState)) {
+            if (!this.setItem(STORAGE_KEYS.SAVED_GAME, slimState)) {
                 console.error("[StorageService] CRITICAL: Save failed even after cleanup.");
                 this.lastSaveErrorTime = Date.now();
                 return false;
@@ -72,30 +69,17 @@ export class StorageService {
     }
 
     clearGameState() {
-        this.removeItem(`${this.gamePrefix}_gamestate`);
-        this.removeItem(`${this.gamePrefix}_reports`);
-    }
-
-    // --- Reports ---
-
-    getReports() {
-        return this.getItem(`${this.gamePrefix}_reports`, []);
-    }
-
-    saveReports(reports) {
-        // Only save the last 60 reports to manage space
-        const reportsToSave = reports.slice(-60);
-        this.setItem(`${this.gamePrefix}_reports`, reportsToSave);
+        this.removeItem(STORAGE_KEYS.SAVED_GAME);
     }
 
     // --- Settings & Config ---
 
-    getSetupConfig() {
-        return this.getItem(`${this.gamePrefix}_setup_config`);
+    getTheme() {
+        return this.getItem(STORAGE_KEYS.THEME, 'dark');
     }
 
-    saveSetupConfig(config) {
-        this.setItem(`${this.gamePrefix}_setup_config`, config);
+    saveTheme(theme) {
+        this.setItem(STORAGE_KEYS.THEME, theme);
     }
 
     getLoggingConfig() {
@@ -106,12 +90,37 @@ export class StorageService {
         this.setItem('logging_config', config);
     }
 
-    getTheme() {
-        // Theme is stored as a raw string, not JSON
-        return localStorage.getItem('theme');
+    // --- Recovery ---
+
+    saveRecoveryState(recoveryData) {
+        return this.setItem(STORAGE_KEYS.RECOVERY, recoveryData);
     }
 
-    saveTheme(theme) {
-        localStorage.setItem('theme', theme);
+    getRecoveryState() {
+        return this.getItem(STORAGE_KEYS.RECOVERY);
+    }
+
+    clearRecoveryState() {
+        this.removeItem(STORAGE_KEYS.RECOVERY);
+    }
+
+    // --- Setup Config ---
+
+    saveSetupConfig(config) {
+        this.setItem('cb_setup_config', config);
+    }
+
+    getSetupConfig() {
+        return this.getItem('cb_setup_config');
+    }
+
+    // --- Reports ---
+
+    getReports() {
+        return this.getItem(STORAGE_KEYS.REPORTS, []);
+    }
+
+    saveReports(reports) {
+        return this.setItem(STORAGE_KEYS.REPORTS, reports);
     }
 }

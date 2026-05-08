@@ -1,0 +1,446 @@
+/* CosmicBalance - Lobby & StellarNavigator Styles */
+
+:root {
+    --stellar-radius: 220px;
+    --stellar-z-offset: -500px;
+    --stellar-anim-speed: 0.45s;
+}
+
+/* ================== WIZARD CAROUSEL ================== */
+.lobby-carousel-viewport {
+    position: relative;
+    width: 100%;
+    max-width: 900px; /* Widened for better 3D spread */
+    flex: 1;
+    min-height: 0;
+    margin: 1rem auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    perspective: 2000px; /* Increased perspective for depth */
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    z-index: 10;
+}
+
+.stellar-carousel {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-style: preserve-3d;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+#lobby-setup-carousel {
+    transform: translateZ(-500px);
+}
+
+.lobby-carousel-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0 8px;
+    flex-shrink: 0;
+    margin-top: 0.75rem;
+    z-index: 20;
+}
+
+.stellar-slide {
+    position: absolute;
+    width: min(90vw, 420px); /* Responsive width */
+    height: min(75dvh, 550px); /* Responsive height */
+    max-height: 100%;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    background: var(--surface-color, rgba(20, 30, 50, 0.85));
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color, rgba(0, 242, 255, 0.3));
+    border-radius: 24px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    text-align: center;
+    transition: transform var(--stellar-anim-speed) cubic-bezier(0.25, 0.8, 0.25, 1), opacity var(--stellar-anim-speed) ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: pan-y;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+}
+
+.stellar-slide.active {
+    border-color: var(--primary-color, #00f2ff);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25), 0 0 15px rgba(0, 242, 255, 0.2);
+    background: var(--bg-color, #0b0d10);
+    z-index: 50;
+}
+
+.stellar-slide::-webkit-scrollbar {
+    width: 6px;
+}
+
+.stellar-slide::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.4);
+    border-radius: 4px;
+}
+
+.stellar-slide-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 0 8px var(--primary-color));
+}
+
+.stellar-slide-title {
+    font-family: var(--font-main);
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.stellar-slide-desc {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    line-height: 1.4;
+    color: var(--text-color);
+}
+
+/* Dots Navigation */
+.stellar-nav {
+    display: flex;
+    gap: 12px;
+}
+
+.stellar-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border-color, rgba(255, 255, 255, 0.2));
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    padding: 0;
+}
+
+.stellar-dot.active {
+    background: var(--primary-color, #00f2ff);
+    transform: scale(1.3);
+    box-shadow: 0 0 8px var(--primary-color);
+}
+
+/* Icons / Buttons for Navigation */
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, color 0.2s;
+}
+
+.icon-btn:hover {
+    color: var(--primary-color);
+    transform: scale(1.1);
+}
+
+.icon-btn:active {
+    transform: scale(0.95);
+}
+
+/* ================== FRIENDS RADAR ================== */
+#friends-radar-modal .modal-content {
+    max-width: 450px;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#friends-radar-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 10px 5px;
+}
+
+.radar-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 16px;
+    transition: transform 0.2s, background 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.radar-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.radar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.radar-name {
+    font-weight: 600;
+    color: var(--primary-color);
+    font-size: 1.1rem;
+}
+
+.radar-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.status-dot.online { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+.status-dot.offline { background: #666; }
+.status-dot.hosting { background: #00f2ff; box-shadow: 0 0 8px #00f2ff; }
+
+.radar-status.online { color: #00ff88; }
+.radar-status.offline { color: #888; }
+.radar-status.hosting { color: #00f2ff; }
+
+.radar-join-btn {
+    margin-top: 4px;
+    width: 100%;
+}
+
+/* ================== ROLE SELECTION ================== */
+.role-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.role-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    color: var(--text-color);
+    font-family: var(--font-main);
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.role-btn span {
+    font-size: 0.8rem;
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+.role-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+.role-btn.active {
+    background: rgba(0, 242, 255, 0.15); /* Fallback */
+    background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+    color: var(--text-color);
+    border-color: var(--primary-color);
+    box-shadow: inset 0 0 15px rgba(0, 242, 255, 0.2), 0 0 15px rgba(0, 242, 255, 0.3);
+}
+
+.role-btn.active span {
+    color: var(--text-color);
+    opacity: 0.9;
+}
+
+/* Setup Panels */
+.role-panel {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 1.5rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.role-panel.show {
+    display: flex;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+}
+
+.input-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--primary-color);
+    opacity: 0.9;
+}
+
+.highlight-input {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #fff;
+    font-family: var(--font-main);
+    font-size: 1.1rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.highlight-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+}
+
+.host-id-box {
+    background: rgba(0, 242, 255, 0.05);
+    border: 1px dashed var(--primary-color);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.5rem;
+}
+
+.id-display {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--primary-color);
+}
+
+/* ================== LOBBY BACKGROUND ================== */
+#lobby-screen {
+    background-color: #0b0d10;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.lobby-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    overflow: hidden;
+    background: radial-gradient(circle at center, #1a2533 0%, #0b0d10 100%);
+}
+
+.stars {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 200%;
+    height: 200%;
+    background: transparent url('https://www.transparenttextures.com/patterns/stardust.png') repeat;
+    animation: move-stars 200s linear infinite;
+    opacity: 0.4;
+    filter: brightness(1.2) contrast(1.2);
+}
+
+.twinkle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* Subtle static depth stars instead of moving patterns */
+    background: radial-gradient(1px 1px at 15% 25%, #fff, transparent),
+                radial-gradient(1px 1px at 45% 65%, #fff, transparent),
+                radial-gradient(1.5px 1.5px at 75% 15%, #fff, transparent),
+                radial-gradient(1px 1px at 85% 85%, #fff, transparent);
+    opacity: 0.2;
+}
+
+@keyframes move-stars {
+    from { transform: translate(0, 0); }
+    to { transform: translate(-50%, -50%); }
+}
+
+@keyframes move-twinkle {
+    from { opacity: 0.2; }
+    to { opacity: 0.5; }
+}
+
+.lobby-header {
+    position: relative;
+    z-index: 20;
+    padding: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lobby-title-area {
+    text-align: center;
+}
+
+.lobby-title-area h1 {
+    font-size: 2.5rem;
+    margin: 0;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(0, 242, 255, 0.5);
+}
+
+.lobby-title-area .highlight {
+    color: var(--primary-color);
+}
+
+.lobby-title-area .subtitle {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    opacity: 0.6;
+    color: #fff;
+}
+

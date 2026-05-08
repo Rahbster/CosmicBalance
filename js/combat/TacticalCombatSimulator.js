@@ -69,16 +69,16 @@ export class TacticalCombatSimulator {
                         design = this._findDesignById(ship.designId, shipDesigns);
                     }
                     if (!design && ship.type) {
-                         const map = {
-                             'Fighter': 'default-wasp', 
-                             'Scout': 'default-wasp',
-                             'Frigate': 'default-unsc-paris',
-                             'Destroyer': 'default-longbow',
-                             'Cruiser': 'default-enterprise',
-                             'SpaceStation': 'default-forerunner-bastion',
-                             'Salvager': 'default-wasp',
-                             'TroopTransport': 'default-wasp'
-                         };
+                          const map = {
+                              'Fighter': 'default-wasp', 
+                              'Scout': 'default-wasp',
+                              'Frigate': 'default-solaris-frigate',
+                              'Destroyer': 'default-longbow',
+                              'Cruiser': 'default-discovery',
+                              'SpaceStation': 'default-zenith-bastion',
+                              'Salvager': 'default-wasp',
+                              'TroopTransport': 'default-wasp'
+                          };
                          const mappedId = map[ship.type];
                          if (mappedId) design = this._findDesignById(mappedId, shipDesigns);
                     }

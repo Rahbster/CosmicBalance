@@ -29,7 +29,7 @@ export class GameEngine {
         
         this.storageService = storageService;
         this.loggingService = loggingService || new LoggingService();
-        console.log("[GameEngine] Constructor started.");
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, "Constructor started.");
         
         this.state = {
             systems: [],
@@ -48,19 +48,19 @@ export class GameEngine {
         };
 
         // Try to load state from localStorage
-        console.log("[GameEngine] Attempting to load game state from localStorage...");
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, "Attempting to load game state from localStorage...");
         
         let loadedState = null;
         if (this.storageService) {
             loadedState = this.storageService.getGameState();
         } else {
-            console.warn("[GameEngine] StorageService not provided, falling back to localStorage.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.WARNING, "StorageService not provided, falling back to localStorage.");
             const raw = localStorage.getItem('cosmic_balance_gamestate');
             if (raw) loadedState = JSON.parse(raw);
         }
 
         if (loadedState) {
-            console.log("[GameEngine] Found saved game state.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, "Found saved game state.");
             try {
                 this.state = loadedState;
                 // Ensure combat state exists for legacy saves
@@ -77,7 +77,7 @@ export class GameEngine {
                 // Explicitly set the engine's paused status from the loaded state.
                 this.paused = loadedState.paused || false;
                 this.timeScale = loadedState.timeScale || 1.0;
-                console.log(`[GameEngine] Loaded 'paused' state from storage: ${loadedState.paused}. Engine 'paused' is now: ${this.paused}`);
+                this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, `Loaded 'paused' state from storage: ${loadedState.paused}. Engine 'paused' is now: ${this.paused}`);
                 if (this.state.gameTime === undefined) this.state.gameTime = 0;
             } catch (e) {
                 console.error("[GameEngine] Failed to parse saved state", e);
@@ -85,7 +85,7 @@ export class GameEngine {
             }
         } else {
             // No saved state, so the game is not paused.
-            console.log("[GameEngine] No saved game state found. Defaulting to not paused.");
+            this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, "No saved game state found. Defaulting to not paused.");
             this.paused = false;
             this.timeScale = 1.0;
         }
@@ -128,11 +128,40 @@ export class GameEngine {
         
         // Host-specific view settings
         this.hostView = {
-            mode: 'player', // 'player', 'god', or 'faction'
-            faction: this.profileService.getTeam(), // The faction to view as, defaults to own team
-            selectedPlayerIds: []
+            mode: 'player', // 'god', 'filtered', 'player', 'faction'
+            faction: null,
+            selectedCommanderIds: []
         };
+        this.isSpectator = false;
+        
+        this.init();
+        
         this.watchBattles = false; // Flag to trigger tactical view for battles
+        this.running = false;
+    }
+
+    init() {
+        // Initial setup for the engine if needed
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, "GameEngine initialized.");
+    }
+
+    /**
+     * Fully replaces the game state (used for migration)
+     */
+    restoreState(newState) {
+        this.state = newState;
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Game state restored at tick ${newState.tick}`);
+        window.dispatchEvent(new CustomEvent('state-restored'));
+    }
+
+    /**
+     * Voluntary host transfer logic
+     */
+    requestHostTransfer(targetPeerId) {
+        if (!this.isHost) return;
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Requesting host transfer to ${targetPeerId}`);
+        this.setPaused(true);
+        window.dispatchEvent(new CustomEvent('host-transfer-initiated', { detail: { targetPeerId } }));
     }
 
     getIdentity() {
@@ -141,6 +170,14 @@ export class GameEngine {
 
     getTeam() {
         return this.profileService.getTeam();
+    }
+
+    getState() {
+        return {
+            ...this.state,
+            paused: this.paused,
+            timeScale: this.timeScale
+        };
     }
 
     get elapsedTime() {
@@ -152,10 +189,14 @@ export class GameEngine {
         this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `AI Debug Mode (Infinite Resources): ${enabled}`);
     }
 
-    togglePause() {
-        console.log(`[GameEngine] togglePause called. Current: ${this.paused}, New: ${!this.paused}`);
-        this.paused = !this.paused;
+    setPaused(paused) {
+        this.paused = paused;
+        this.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.DEBUG, `setPaused: ${paused}`);
         this.broadcast({ type: 'GAME_SET_PAUSE', paused: this.paused });
+    }
+
+    togglePause() {
+        this.setPaused(!this.paused);
     }
 
     resumeFromCombat() {
@@ -276,22 +317,50 @@ export class GameEngine {
         return this.state.players.find(p => p.id === this.getIdentity().guid);
     }
 
-    getViewingPlayerIds() {
+    getViewingCommanderIds() {
+        const localPlayer = this.getLocalPlayer();
+        const isGodMode = this.isHost && this.hostView.mode === 'god';
+        
+        // Hardening: If host is a participant, they are restricted unless in God mode
         if (this.isHost) {
-            if (this.hostView.mode === 'god') {
+            if (isGodMode) {
                 return this.state.players.map(p => p.id);
             }
+            
+            // If host is a participant, they can only see their own faction members
+            if (localPlayer) {
+                const teamMembers = this.state.players.filter(p => p.team === localPlayer.team).map(p => p.id);
+                
+                if (this.hostView.mode === 'filtered') {
+                    // Only allow viewing if they are on the same team
+                    return this.hostView.selectedCommanderIds.filter(id => teamMembers.includes(id));
+                }
+                if (this.hostView.mode === 'player') {
+                    const targetId = this.hostView.faction;
+                    return teamMembers.includes(targetId) ? [targetId] : [localPlayer.id];
+                }
+                return teamMembers;
+            }
+
+            // If pure spectator (host but no local player in state)
             if (this.hostView.mode === 'filtered') {
-                return this.hostView.selectedPlayerIds || [];
+                return this.hostView.selectedCommanderIds || [];
             }
             if (this.hostView.mode === 'player') {
-                return [this.hostView.faction]; // In 'player' mode, faction holds the player ID
+                return [this.hostView.faction]; 
             }
             if (this.hostView.mode === 'faction') {
                 return this.state.players.filter(p => p.team === this.hostView.faction).map(p => p.id);
             }
+            return this.state.players.map(p => p.id); // Default for pure spectator is god view
         }
-        return [this.getIdentity().guid]; // Default to the local player's own ID
+        
+        // Joiners/Remote Players: Restricted to own faction
+        if (localPlayer) {
+            return this.state.players.filter(p => p.team === localPlayer.team).map(p => p.id);
+        }
+        
+        return [this.getIdentity().guid];
     }
 
     getLocalPlayerTechBase() {
@@ -330,6 +399,44 @@ export class GameEngine {
         } else {
             this.broadcast(request);
         }
+    }
+
+    requestFactionUpdate(update) {
+        const request = {
+            type: 'GAME_REQUEST_FACTION_UPDATE',
+            senderId: this.getIdentity().guid,
+            update: update
+        };
+        if (this.isHost) {
+            this.handleFactionUpdateRequest(request);
+        } else {
+            this.broadcast(request);
+        }
+    }
+
+    handleFactionUpdateRequest({ senderId, update }) {
+        if (!this.isHost) return;
+
+        const player = this.state.players.find(p => p.id === senderId);
+        if (!player) return;
+
+        // Apply changes to ALL players in the same faction
+        const teamName = player.team;
+        const teammates = this.state.players.filter(p => p.team === teamName);
+        
+        teammates.forEach(p => {
+            if (update.factionName) {
+                p.factionName = update.factionName;
+                p.team = update.factionName; // Sync team key if it changed
+            }
+            if (update.color) p.color = update.color;
+        });
+
+        this.broadcast({ 
+            type: 'GAME_FACTION_UPDATE', 
+            teamId: teamName, 
+            update: update 
+        });
     }
 
     handlePlayerUpdateRequest({ senderId, update }) {
@@ -421,14 +528,23 @@ export class GameEngine {
         this.economyService.requestBuild(shipType, count);
     }
 
-    addPlayer(id, name, role = 'player') {
-        this.gameSetupService.addPlayer(id, name, role);
+    addPlayer(id, name, role = 'player', color = null, factionName = null) {
+        this.gameSetupService.addPlayer(id, name, role, color, factionName);
     }
 
     async start() {
+        if (this.running) return;
+        this.running = true;
+
         // Resize canvas to fit window
         this.resizeCanvas();
-        window.addEventListener('resize', () => this.resizeCanvas());
+        
+        if (!this.resizeObserver && this.canvas.parentElement) {
+            this.resizeObserver = new ResizeObserver(() => {
+                this.resizeCanvas();
+            });
+            this.resizeObserver.observe(this.canvas.parentElement);
+        }
 
         // Load sprites and tech data before starting the loop
         await Promise.all([
@@ -439,9 +555,25 @@ export class GameEngine {
         requestAnimationFrame((t) => this.loop(t));
     }
 
+    stop() {
+        this.running = false;
+    }
+
     resizeCanvas() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+        const parent = this.canvas.parentElement;
+        const width = parent ? parent.clientWidth : window.innerWidth;
+        const height = parent ? parent.clientHeight : window.innerHeight;
+        
+        if (width === 0 || height === 0) return; // Wait for valid dimensions to prevent drawing crashes
+
+        this.canvas.width = width * dpr;
+        this.canvas.height = height * dpr;
+        
+        // Ensure the context scale is set to handle the DPR
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset
+        this.ctx.scale(dpr, dpr);
+        
         this.draw();
     }
 
@@ -524,8 +656,10 @@ export class GameEngine {
                 window.dispatchEvent(new CustomEvent('ai-report-generated', { detail: { report, history: this.reportHistory } }));
             }
         }
-        
-        requestAnimationFrame((t) => this.loop(t));
+
+        if (this.running) {
+            requestAnimationFrame((t) => this.loop(t));
+        }
     }
 
     generateAIReport() {
@@ -704,6 +838,7 @@ export class GameEngine {
     }
 
     draw() {
+        if (this.canvas.width === 0 || this.canvas.height === 0) return;
         this.renderService.draw();
     }
 
@@ -735,6 +870,17 @@ export class GameEngine {
     }
 
     broadcast(msg) {
+        // SPECTATOR CHECK: Observers cannot send game-altering requests
+        const localPlayer = this.getLocalPlayer();
+        if (localPlayer && localPlayer.role === 'spectator') {
+            const blockedTypes = ['GAME_REQUEST_', 'GAME_FLEET_', 'GAME_PLANET_', 'GAME_SYSTEM_'];
+            if (blockedTypes.some(t => msg.type.startsWith(t))) {
+                console.warn("[GameEngine] Spectator blocked from sending transmission:", msg.type);
+                if (window.toastManager) window.toastManager.show("Command Access Denied: Observer Status.", 'warning');
+                return;
+            }
+        }
+
         // Send to remote peers only if a data channel is open
         if (this.peerManager && this.peerManager.conn && this.peerManager.conn.open) {
             this.peerManager.send(msg);

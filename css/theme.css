@@ -1,0 +1,155 @@
+/**
+ * CosmicBalance - Modern HSL Design System
+ * Inspired by PeerSudoku's premium aesthetic.
+ */
+
+:root {
+    /* Base Typography */
+    --font-main: 'Orbitron', sans-serif;
+    --font-ui: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+    /* Theme: Solaris Alliance (Terran Default) */
+    --bg-h: 220;
+    --bg-s: 20%;
+    --bg-l: 6%;
+    --bg-color: hsl(var(--bg-h), var(--bg-s), var(--bg-l));
+    
+    --surface-h: 215;
+    --surface-s: 25%;
+    --surface-l: 12%;
+    --surface-color: hsl(var(--surface-h), var(--surface-s), var(--surface-l));
+    
+    --primary-h: 185;
+    --primary-s: 100%;
+    --primary-l: 50%;
+    --primary-color: hsl(var(--primary-h), var(--primary-s), var(--primary-l)); /* Cyan/Solaris Blue */
+    --primary-glow: hsla(var(--primary-h), var(--primary-s), var(--primary-l), 0.4);
+
+    --text-h: 210;
+    --text-s: 20%;
+    --text-l: 90%;
+    --text-color: hsl(var(--text-h), var(--text-s), var(--text-l));
+    
+    --border-h: 185;
+    --border-s: 50%;
+    --border-l: 30%;
+    --border-color: hsla(var(--border-h), var(--border-s), var(--border-l), 0.3);
+    
+    --card-bg: hsla(var(--surface-h), var(--surface-s), var(--surface-l), 0.85);
+    --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    
+    /* Device / Viewport Spacing */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --header-height: 70px;
+}
+
+/* Theme: Void Syndicate (Unique Xeno Aesthetic) */
+[data-theme="syndicate"] {
+    --bg-h: 270;
+    --bg-s: 30%;
+    --bg-l: 5%;
+    
+    --surface-h: 275;
+    --surface-s: 35%;
+    --surface-l: 15%;
+    
+    --primary-h: 280;
+    --primary-s: 80%;
+    --primary-l: 60%; /* Purple/Syndicate */
+    
+    --border-h: 280;
+    --border-s: 60%;
+    --border-l: 40%;
+}
+
+/* Theme: Light (Clean Sci-Fi) */
+[data-theme="light"] {
+    --bg-h: 210;
+    --bg-s: 20%;
+    --bg-l: 95%;
+    --bg-color: hsl(var(--bg-h), var(--bg-s), var(--bg-l));
+    
+    --surface-h: 0;
+    --surface-s: 0%;
+    --surface-l: 100%;
+    --surface-color: #fff;
+    
+    --text-h: 210;
+    --text-s: 20%;
+    --text-l: 20%;
+    --text-color: hsl(var(--text-h), var(--text-s), var(--text-l));
+    
+    --border-l: 80%;
+    --card-bg: rgba(255, 255, 255, 0.9);
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Base Overrides */
+body {
+    font-family: var(--font-ui);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+}
+
+h1, h2, h3, .orbitron {
+    font-family: var(--font-main);
+    letter-spacing: 2px;
+}
+
+/* Button Styles */
+.theme-button, button:not(.icon-btn):not(.stellar-dot) {
+    font-family: var(--font-main);
+    padding: 10px 20px;
+    border: 1px solid var(--primary-color);
+    background: transparent;
+    color: var(--primary-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-button:hover, button:not(.icon-btn):not(.stellar-dot):hover {
+    background: var(--primary-glow);
+    box-shadow: 0 0 15px var(--primary-glow);
+    transform: translateY(-2px);
+}
+
+.theme-button:active, button:not(.icon-btn):not(.stellar-dot):active {
+    transform: translateY(0);
+}
+
+/* Glassmorphism Modals */
+.modal-content {
+    background: var(--card-bg) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 20px !important;
+    box-shadow: var(--shadow) !important;
+    color: var(--text-color) !important;
+}
+
+/* Input Styles */
+input[type="text"], select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text-color);
+    font-family: var(--font-ui);
+    outline: none;
+    transition: border-color 0.3s;
+}
+
+input[type="text"]:focus, select:focus {
+    border-color: var(--primary-color);
+}

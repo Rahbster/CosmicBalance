@@ -71,6 +71,12 @@ export class UnitService {
             ...overrides
         };
 
+        // Assign Hull Style for visual variety if available
+        if (ship.isStation && ship.techBase === 'Solaris') {
+            const styles = ['Bastion', 'Outpost'];
+            ship.hullStyle = styles[Math.floor(Math.random() * styles.length)];
+        }
+
         if (ship.isStation) {
             ship.buildQueue = [];
         }

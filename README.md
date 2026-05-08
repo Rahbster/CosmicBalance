@@ -4,7 +4,7 @@ A Peer-to-Peer (P2P) Real-Time Strategy (RTS) space game built with HTML5 Canvas
 
 ## Overview
 
-Cosmic Balance is a web-based RTS where players command factions (UNSC or Covenant), manage resources, research technologies, build fleets, and conquer star systems. The game features a peer-to-peer multiplayer architecture allowing for serverless matches between players.
+Cosmic Balance is a web-based RTS where players command factions (Solaris Alliance or Void Syndicate), manage resources, research technologies, build fleets, and conquer star systems. The game features a peer-to-peer multiplayer architecture allowing for serverless matches between players.
 
 ## Features
 

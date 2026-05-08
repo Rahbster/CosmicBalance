@@ -171,7 +171,7 @@ export class TextureGenerator {
             system.color = baseColor;
         }
 
-        // 1. Halo / Corona
+        // 1. Corona / Bloom
         const coronaSize = 0.4 + (random() * 0.2); 
         const haloGrad = ctx.createRadialGradient(center, center, r * 0.2, center, center, r * coronaSize);
         haloGrad.addColorStop(0, baseColor);

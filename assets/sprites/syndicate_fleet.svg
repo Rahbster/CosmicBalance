@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="organic" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="turbulence" baseFrequency="0.1" numOctaves="2" result="noise" />
+      <feComposite in="noise" in2="SourceGraphic" operator="in" />
+      <feBlend in="SourceGraphic" in2="noise" mode="screen" opacity="0.4" />
+    </filter>
+  </defs>
+  <g filter="url(#organic)">
+    <path d="M32 8 C55 15 55 55 32 60 C9 55 9 15 32 8" fill="#d400ff" />
+    <circle cx="32" cy="34" r="8" fill="rgba(255,255,255,0.3)" />
+  </g>
+</svg>

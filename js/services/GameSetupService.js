@@ -1,5 +1,6 @@
 import { AI_PROFILES } from './ai/AIProfiles.js';
-import { FACTION_COLORS, LOG_CATEGORIES, LOG_LEVELS } from '../cb_constants.js';
+import { FACTION_COLORS, LOG_CATEGORIES, LOG_LEVELS, AI_FACTION_NAMES, PIRATE_FACTION_NAMES } from '../cb_constants.js';
+import { appState } from '../state.js';
 
 export class GameSetupService {
     constructor(engine) {
@@ -18,15 +19,24 @@ export class GameSetupService {
         
         this.engine.state.players = [];
         this.engine.state.gameTime = 0;
+        this.engine.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Creating new game with ${humanPlayers.length} humans and ${aiPlayers.length} AI.`);
 
         if (humanPlayers && humanPlayers.length > 0) {
             humanPlayers.forEach(human => {
-                const humanColor = availableColors.splice(0, 1)[0];
+                // Priority: Use the color passed in the humanPlayers config (from appState)
+                let humanColor = human.factionColor || human.color;
+                
+                // Fallback for other humans if color wasn't provided
+                if (!humanColor) {
+                    humanColor = availableColors.splice(0, 1)[0] || '#FFFFFF';
+                }
+                
                 this.engine.state.players.push({
                     id: human.guid,
-                    factionName: human.name,
-                    team: human.name,
-                    techBase: human.team || 'UNSC', 
+                    name: human.name,
+                    factionName: human.factionName || human.name,
+                    team: human.factionName || human.name,
+                    techBase: human.team || 'Solaris', 
                     color: humanColor,
                     isAI: false,
                     resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
@@ -41,27 +51,39 @@ export class GameSetupService {
 
         if (isSpectator) {
             this.engine.hostView.mode = 'god';
-            this.engine.hostView.selectedPlayerIds = [];
+            this.engine.hostView.selectedCommanderIds = [];
+            this.engine.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Host view set to 'god' mode (Observer).`);
         } else {
             this.engine.hostView.mode = 'player';
-            this.engine.hostView.selectedPlayerIds = [this.engine.getIdentity().guid];
+            this.engine.hostView.faction = appState.playerId;
+            this.engine.hostView.selectedCommanderIds = [appState.playerId];
+            this.engine.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Host view set to 'player' mode for ID: ${appState.playerId}`);
         }
 
         // Add resources to AI players
         const profileKeys = Object.keys(AI_PROFILES);
+        const availableFactionNames = [...AI_FACTION_NAMES];
         
-        // Shuffle profiles
+        // Shuffle profiles and names
         for (let i = profileKeys.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [profileKeys[i], profileKeys[j]] = [profileKeys[j], profileKeys[i]];
         }
+        for (let i = availableFactionNames.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [availableFactionNames[i], availableFactionNames[j]] = [availableFactionNames[j], availableFactionNames[i]];
+        }
+        const pirateFactionName = PIRATE_FACTION_NAMES[Math.floor(Math.random() * PIRATE_FACTION_NAMES.length)];
 
         this.engine.state.players.push(...aiPlayers.map((p, i) => {
             const profileKey = profileKeys[i % profileKeys.length];
-            const profileName = AI_PROFILES[profileKey].name;
+            const factionName = availableFactionNames[i % availableFactionNames.length];
+            const techBase = p.techBase || (i % 2 === 0 ? 'Solaris' : 'Syndicate');
             return { 
                 ...p, 
-                factionName: `${profileName} AI ${i + 1}`, 
+                name: factionName,
+                factionName: factionName, 
+                techBase: techBase,
                 aiProfile: profileKey,
                 color: availableColors.splice(0, 1)[0], 
                 resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 }, 
@@ -76,9 +98,9 @@ export class GameSetupService {
         // Add Pirate Faction
         this.engine.state.players.push({
             id: 'pirates',
-            factionName: 'Space Raiders',
+            factionName: pirateFactionName,
             team: 'Pirates',
-            techBase: 'UNSC', // Uses standard tech for now
+            techBase: 'Pirate', // Uses custom pirate tech and textures
             color: '#666666', // Dark Grey
             isAI: true,
             aiProfile: 'PIRATE',
@@ -167,13 +189,15 @@ export class GameSetupService {
         return this.engine.state;
     }
 
-    addPlayer(id, name, role = 'player') {
+    addPlayer(id, name, role = 'player', color = null, factionName = null) {
         if (!this.engine.isHost) return;
 
         let player = this.engine.state.players.find(p => p.id === id);
         if (player) {
             this.engine.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Player ${name} re-joined.`);
-            player.factionName = name; 
+            player.name = name;
+            if (factionName) player.factionName = factionName;
+            if (color) player.color = color;
             this.engine.peerManager.send({ type: 'GAME_SET_STATE', state: this.engine.state });
             return;
         }
@@ -190,7 +214,9 @@ export class GameSetupService {
             this.engine.loggingService.log(LOG_CATEGORIES.SYSTEM, LOG_LEVELS.INFO, `Converting AI ${aiPlayer.factionName} to Human Player ${name}`);
             
             aiPlayer.id = id;
-            aiPlayer.factionName = name;
+            aiPlayer.name = name;
+            aiPlayer.factionName = factionName || name;
+            aiPlayer.color = color || aiPlayer.color;
             aiPlayer.isAI = false;
             delete aiPlayer.aiProfile; 
             delete aiPlayer.aiGoal;
@@ -210,10 +236,16 @@ export class GameSetupService {
         
         if (unownedSystem) {
             const availableColors = FACTION_COLORS.filter(c => !this.engine.state.players.some(p => p.color === c));
-            const color = availableColors.length > 0 ? availableColors[0] : '#FFFFFF';
+            const randomColor = availableColors.length > 0 ? availableColors[0] : '#FFFFFF';
 
             const newPlayer = {
-                id: id, factionName: name, team: name, techBase: 'UNSC', color: color, isAI: false,
+                id: id, 
+                name: name,
+                factionName: factionName || name, 
+                team: factionName || name, 
+                techBase: 'Solaris', 
+                color: color || randomColor, 
+                isAI: false,
                 resources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
                 totalResources: { IO: 500, minerals: 200, scrap: 200, energy: 200 },
                 researchedTechs: [], researchQueue: [], fleets: [], designs: []
@@ -255,18 +287,26 @@ export class GameSetupService {
         const profileName = AI_PROFILES[newProfileKey].name;
 
         const newId = `AI_${crypto.randomUUID().split('-')[0]}`;
-        let nameSuffix = 1;
-        let newName = `${profileName} AI ${nameSuffix}`;
-        while (this.engine.state.players.some(p => p.factionName === newName)) {
-            nameSuffix++;
+        const unusedNames = AI_FACTION_NAMES.filter(name => !this.engine.state.players.some(p => p.factionName === name));
+        let newName;
+        if (unusedNames.length > 0) {
+            newName = unusedNames[Math.floor(Math.random() * unusedNames.length)];
+        } else {
+            // Fallback if we run out of names
+            const profileName = AI_PROFILES[newProfileKey].name;
+            let nameSuffix = 1;
             newName = `${profileName} AI ${nameSuffix}`;
+            while (this.engine.state.players.some(p => p.factionName === newName)) {
+                nameSuffix++;
+                newName = `${profileName} AI ${nameSuffix}`;
+            }
         }
 
         const newPlayer = {
             id: newId,
             factionName: newName,
             team: newName,
-            techBase: 'COVENANT', 
+            techBase: 'Syndicate', 
             color: deadPlayer.color, 
             isAI: true,
             aiProfile: newProfileKey,

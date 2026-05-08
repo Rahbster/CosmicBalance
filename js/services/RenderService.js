@@ -54,7 +54,7 @@ export class RenderService {
         ctx.scale(zoom, zoom);
 
         const isHostGodView = this.gameEngine.isHost && this.gameEngine.hostView.mode === 'god';
-        const viewingIds = this.gameEngine.getViewingPlayerIds();
+        const viewingIds = this.gameEngine.getViewingCommanderIds();
         
         // 1. Calculate Visibility for all systems once per frame
         const visibilityMap = new Map();
